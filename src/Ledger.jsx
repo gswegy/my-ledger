@@ -1781,7 +1781,7 @@ function PlaceholderTab({ title }) {
 }
 
 function ReviewsTab() {
-  const [view, setView] = useState(null); // null | "assets-liabilities"
+  const [view, setView] = useState(null); // null | "assets-liabilities" | "sales"
 
   if (view === "assets-liabilities") {
     return (
@@ -1790,6 +1790,17 @@ function ReviewsTab() {
           &larr; Reviews
         </button>
         <AssetsLiabilitiesScreen />
+      </div>
+    );
+  }
+
+  if (view === "sales") {
+    return (
+      <div>
+        <button onClick={() => setView(null)} style={backBtn}>
+          &larr; Reviews
+        </button>
+        <SalesScreen />
       </div>
     );
   }
@@ -1806,6 +1817,9 @@ function ReviewsTab() {
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <button onClick={() => setView("assets-liabilities")} style={bigHomeBtn}>
           Assets &amp; Liabilities
+        </button>
+        <button onClick={() => setView("sales")} style={bigHomeBtn}>
+          Sales
         </button>
       </div>
     </div>
@@ -1903,6 +1917,122 @@ function SummaryCard({ label, value, color }) {
     >
       <div style={{ fontSize: 12, color: "#8B7355", marginBottom: 4 }}>{label}</div>
       <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, fontWeight: 600, color }}>{value}</div>
+    </div>
+  );
+}
+
+// Aggregates every "take" entry (amount > 0 = gold/wages given to a client,
+// i.e. a sale) across all clients, grouped by the month it happened in.
+function buildMonthlySales(customersLedgers) {
+  const monthMap = {};
+  const touch = (key) => {
+    if (!monthMap[key]) monthMap[key] = { gold: 0, wages: 0 };
+    return monthMap[key];
+  };
+  customersLedgers.forEach((ledger) => {
+    (ledger.gold || []).forEach((e) => {
+      if (e.amount > 0) touch(monthKey(e.date)).gold += e.amount;
+    });
+    (ledger.wages || []).forEach((e) => {
+      if (e.amount > 0) touch(monthKey(e.date)).wages += e.amount;
+    });
+  });
+  return Object.keys(monthMap)
+    .sort()
+    .reverse()
+    .map((key) => ({ key, ...monthMap[key] }));
+}
+
+function SalesScreen() {
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState([]);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let customers = [];
+      let fetchError = null;
+      try {
+        const res = await window.storage.get("customers-list", false);
+        customers = res ? JSON.parse(res.value) : [];
+      } catch (e) {
+        customers = [];
+        fetchError = "customers-list: " + (e && e.message ? e.message : String(e));
+      }
+
+      const ledgers = [];
+      for (const c of customers) {
+        let ledger = emptyLedger();
+        try {
+          const res = await window.storage.get("ledger:" + c.id, false);
+          if (res) ledger = { ...emptyLedger(), ...JSON.parse(res.value) };
+        } catch (e) {
+          if (!fetchError) fetchError = "ledger:" + c.id + ": " + (e && e.message ? e.message : String(e));
+        }
+        ledgers.push(ledger);
+      }
+
+      if (!cancelled) {
+        setRows(buildMonthlySales(ledgers));
+        setError(fetchError);
+        setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (loading) {
+    return <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "2rem 0" }}>Loading…</div>;
+  }
+
+  return (
+    <div style={{ fontFamily: "'Inter', sans-serif" }}>
+      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 600, color: "#F3EEE3", marginBottom: 4 }}>
+        Sales
+      </div>
+      <div style={{ fontSize: 12.5, color: "#8B7355", marginBottom: 18 }}>
+        Total gold and wages taken by clients, by month
+      </div>
+
+      {rows.length === 0 ? (
+        <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "2rem 0" }}>
+          No sales recorded yet.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {rows.map((row) => (
+            <MonthSalesCard key={row.key} label={monthLabel(row.key)} gold={row.gold} wages={row.wages} />
+          ))}
+        </div>
+      )}
+
+      {error ? (
+        <div style={{ fontSize: 11, color: "#5A5340", marginTop: 20, textAlign: "center" }}>error: {error}</div>
+      ) : null}
+    </div>
+  );
+}
+
+function MonthSalesCard({ label, gold, wages }) {
+  return (
+    <div
+      style={{
+        background: "#232019",
+        border: "1px solid #3A3527",
+        borderRadius: 14,
+        padding: "1rem 1.1rem",
+      }}
+    >
+      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 17, fontWeight: 600, color: "#F3EEE3", marginBottom: 12 }}>
+        {label}
+      </div>
+      <div style={{ display: "flex", gap: 10 }}>
+        <SummaryCard label="Gold sold" value={grams(gold)} color="#C9A227" />
+        <SummaryCard label="Wages sold" value={money(wages)} color="#C9A227" />
+      </div>
     </div>
   );
 }
