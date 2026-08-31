@@ -76,6 +76,27 @@ function buildMonthlyReview(entries) {
 
 const emptyLedger = () => ({ gold: [], wages: [], prices: {} });
 
+// Fetches a single client's ledger from storage, defaulting to empty on
+// any error (missing key, parse failure, etc).
+async function fetchLedgerFor(customerId) {
+  try {
+    const res = await window.storage.get("ledger:" + customerId, false);
+    return res ? { ...emptyLedger(), ...JSON.parse(res.value) } : emptyLedger();
+  } catch (e) {
+    return emptyLedger();
+  }
+}
+
+// Fetches every listed customer's ledger concurrently (instead of one
+// request at a time) — this is what makes Backup and the cross-client
+// Review screens load in roughly one round-trip instead of N.
+async function fetchAllLedgers(customers) {
+  const pairs = await Promise.all(
+    (customers || []).map(async (c) => [c.id, await fetchLedgerFor(c.id)])
+  );
+  return Object.fromEntries(pairs);
+}
+
 // Entries created before/without the "books" feature (or via the normal
 // add-entry flow) have no `book` field and count as the ongoing "current"
 // book. Entries imported from an archive (e.g. a past year) carry an
@@ -368,18 +389,11 @@ function ClientsTab() {
 
   async function buildBackupData() {
     const list = customers || [];
+    const uncached = list.filter((c) => !ledgers[c.id]);
+    const fetched = await fetchAllLedgers(uncached);
     const allLedgers = {};
     for (const c of list) {
-      if (ledgers[c.id]) {
-        allLedgers[c.id] = ledgers[c.id];
-      } else {
-        try {
-          const res = await window.storage.get("ledger:" + c.id, false);
-          allLedgers[c.id] = res ? { ...emptyLedger(), ...JSON.parse(res.value) } : emptyLedger();
-        } catch (e) {
-          allLedgers[c.id] = emptyLedger();
-        }
-      }
+      allLedgers[c.id] = ledgers[c.id] || fetched[c.id] || emptyLedger();
     }
     return JSON.stringify(
       { customers: list, categories: categories || [], ledgers: allLedgers },
@@ -557,7 +571,7 @@ function ClientsTab() {
         <DetailScreen
           customer={active}
           ledger={ledgers[active.id] || emptyLedger()}
-          balances={balancesFor(active.id) || { gold: 0, wages: 0 }}
+          balances={totalBalancesFor(active.id) || { gold: 0, wages: 0 }}
           categories={categories || []}
           tab={detailTab}
           setTab={setDetailTab}
@@ -1122,15 +1136,19 @@ function DetailScreen({
   const [contactOpen, setContactOpen] = useState(false);
   const [phoneDraft, setPhoneDraft] = useState(customer.phone || "");
   const [addressDraft, setAddressDraft] = useState(customer.address || "");
-  const [goldBook, setGoldBook] = useState("current");
-  const [wagesBook, setWagesBook] = useState("current");
+  const [goldBook, setGoldBook] = useState(null);
+  const [wagesBook, setWagesBook] = useState(null);
 
   const goldExtraBooks = (ledger.extraBooks && ledger.extraBooks.gold) || [];
   const wagesExtraBooks = (ledger.extraBooks && ledger.extraBooks.wages) || [];
-  const goldBooks = ["current", ...Array.from(new Set([...distinctBooks(ledger.gold), ...goldExtraBooks])).sort()];
-  const wagesBooks = ["current", ...Array.from(new Set([...distinctBooks(ledger.wages), ...wagesExtraBooks])).sort()];
-  const goldEntriesForBook = entriesForBook(ledger.gold, goldBooks.includes(goldBook) ? goldBook : "current");
-  const wagesEntriesForBook = entriesForBook(ledger.wages, wagesBooks.includes(wagesBook) ? wagesBook : "current");
+  // Newest book first (e.g. 2026, then 2025) — there's no separate
+  // "Current" tab; the newest named book is what's active by default.
+  const goldBooks = Array.from(new Set([...distinctBooks(ledger.gold), ...goldExtraBooks])).sort().reverse();
+  const wagesBooks = Array.from(new Set([...distinctBooks(ledger.wages), ...wagesExtraBooks])).sort().reverse();
+  const activeGoldBook = goldBook && goldBooks.includes(goldBook) ? goldBook : goldBooks[0] || "current";
+  const activeWagesBook = wagesBook && wagesBooks.includes(wagesBook) ? wagesBook : wagesBooks[0] || "current";
+  const goldEntriesForBook = entriesForBook(ledger.gold, activeGoldBook);
+  const wagesEntriesForBook = entriesForBook(ledger.wages, activeWagesBook);
 
   function handleAddBook(kind, bookId) {
     onAddBook(kind, bookId);
@@ -1140,8 +1158,8 @@ function DetailScreen({
 
   function handleDeleteBook(kind, bookId) {
     onDeleteBook(kind, bookId);
-    if (kind === "gold" && goldBook === bookId) setGoldBook("current");
-    if (kind === "wages" && wagesBook === bookId) setWagesBook("current");
+    if (kind === "gold" && activeGoldBook === bookId) setGoldBook(null);
+    if (kind === "wages" && activeWagesBook === bookId) setWagesBook(null);
   }
 
   function handleNameClick() {
@@ -1306,12 +1324,12 @@ function DetailScreen({
         <div>
           <BookSelector
             books={goldBooks}
-            active={goldBook}
+            active={activeGoldBook}
             onSelect={setGoldBook}
             onAddBook={(bookId) => handleAddBook("gold", bookId)}
             onDeleteBook={(bookId) => handleDeleteBook("gold", bookId)}
           />
-          {goldBook !== "current" && (
+          {activeGoldBook !== "current" && (
             <BookBalanceLine entries={goldEntriesForBook} formatAmount={grams} />
           )}
           <LedgerSection
@@ -1322,7 +1340,7 @@ function DetailScreen({
             entries={goldEntriesForBook}
             kind="gold"
             formatAmount={grams}
-            onAdd={() => startEntry("gold", goldBook)}
+            onAdd={() => startEntry("gold", activeGoldBook)}
             onEdit={(entry) => editEntry("gold", entry)}
             onDelete={(id) => deleteEntry("gold", id)}
             entryForm={entryForm}
@@ -1336,12 +1354,12 @@ function DetailScreen({
         <div>
           <BookSelector
             books={wagesBooks}
-            active={wagesBook}
+            active={activeWagesBook}
             onSelect={setWagesBook}
             onAddBook={(bookId) => handleAddBook("wages", bookId)}
             onDeleteBook={(bookId) => handleDeleteBook("wages", bookId)}
           />
-          {wagesBook !== "current" && (
+          {activeWagesBook !== "current" && (
             <BookBalanceLine entries={wagesEntriesForBook} formatAmount={money} />
           )}
           <LedgerSection
@@ -1352,7 +1370,7 @@ function DetailScreen({
             entries={wagesEntriesForBook}
             kind="wages"
             formatAmount={money}
-            onAdd={() => startEntry("wages", wagesBook)}
+            onAdd={() => startEntry("wages", activeWagesBook)}
             onEdit={(entry) => editEntry("wages", entry)}
             onDelete={(id) => deleteEntry("wages", id)}
             entryForm={entryForm}
@@ -2130,14 +2148,15 @@ function AssetsLiabilitiesScreen() {
       let wageAssets = 0;
       let wageLiabilities = 0;
 
+      let allLedgers = {};
+      try {
+        allLedgers = await fetchAllLedgers(customers);
+      } catch (e) {
+        if (!fetchError) fetchError = "ledgers: " + (e && e.message ? e.message : String(e));
+      }
+
       for (const c of customers) {
-        let ledger = emptyLedger();
-        try {
-          const res = await window.storage.get("ledger:" + c.id, false);
-          if (res) ledger = { ...emptyLedger(), ...JSON.parse(res.value) };
-        } catch (e) {
-          if (!fetchError) fetchError = "ledger:" + c.id + ": " + (e && e.message ? e.message : String(e));
-        }
+        const ledger = allLedgers[c.id] || emptyLedger();
         const goldBalance = (ledger.gold || []).reduce((s, e) => s + e.amount, 0);
         const wageBalance = (ledger.wages || []).reduce((s, e) => s + e.amount, 0);
         if (goldBalance > 0) goldAssets += goldBalance;
@@ -2242,17 +2261,13 @@ function SalesScreen() {
         fetchError = "customers-list: " + (e && e.message ? e.message : String(e));
       }
 
-      const ledgers = [];
-      for (const c of customers) {
-        let ledger = emptyLedger();
-        try {
-          const res = await window.storage.get("ledger:" + c.id, false);
-          if (res) ledger = { ...emptyLedger(), ...JSON.parse(res.value) };
-        } catch (e) {
-          if (!fetchError) fetchError = "ledger:" + c.id + ": " + (e && e.message ? e.message : String(e));
-        }
-        ledgers.push(ledger);
+      let ledgersById = {};
+      try {
+        ledgersById = await fetchAllLedgers(customers);
+      } catch (e) {
+        fetchError = "ledgers: " + (e && e.message ? e.message : String(e));
       }
+      const ledgers = customers.map((c) => ledgersById[c.id] || emptyLedger());
 
       if (!cancelled) {
         setRows(buildMonthlySales(ledgers));
