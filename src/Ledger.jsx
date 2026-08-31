@@ -2,6 +2,20 @@ import { useState, useEffect, useCallback, useRef } from "react";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
+// Converts Arabic-Indic (٠-٩) and Extended Arabic-Indic/Persian (۰-۹) digits,
+// plus Arabic decimal/thousands separators, to plain English digits/punctuation.
+function toEnglishDigits(str) {
+  if (!str) return str;
+  const map = {
+    "٠": "0", "١": "1", "٢": "2", "٣": "3", "٤": "4",
+    "٥": "5", "٦": "6", "٧": "7", "٨": "8", "٩": "9",
+    "۰": "0", "۱": "1", "۲": "2", "۳": "3", "۴": "4",
+    "۵": "5", "۶": "6", "۷": "7", "۸": "8", "۹": "9",
+    "٫": ".", "،": ",",
+  };
+  return String(str).replace(/[٠-٩۰-۹٫،]/g, (d) => map[d]);
+}
+
 function money(n) {
   const v = Number(n) || 0;
   return v.toLocaleString(undefined, { style: "currency", currency: "USD" });
@@ -176,7 +190,7 @@ function ClientsTab() {
   }
 
   async function submitEntry() {
-    const amt = parseFloat(entryForm.amount);
+    const amt = parseFloat(toEnglishDigits(entryForm.amount));
     if (isNaN(amt) || amt <= 0) {
       setEntryForm((f) => ({ ...f, error: "Enter a valid amount" }));
       return;
@@ -1513,7 +1527,7 @@ function LedgerSection({ title, takeLabel, returnLabel, emptyText, entries, kind
           <div style={{ display: "flex", gap: 8 }}>
             <input
               value={entryForm.amount}
-              onChange={(e) => setEntryForm((f) => ({ ...f, amount: e.target.value }))}
+              onChange={(e) => setEntryForm((f) => ({ ...f, amount: toEnglishDigits(e.target.value) }))}
               placeholder={kind === "gold" ? "Grams" : "Amount"}
               inputMode="decimal"
               style={{ ...inputStyle, flex: 1 }}
@@ -1766,6 +1780,133 @@ function PlaceholderTab({ title }) {
   );
 }
 
+function ReviewsTab() {
+  const [view, setView] = useState(null); // null | "assets-liabilities"
+
+  if (view === "assets-liabilities") {
+    return (
+      <div>
+        <button onClick={() => setView(null)} style={backBtn}>
+          &larr; Reviews
+        </button>
+        <AssetsLiabilitiesScreen />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        fontFamily: "'Inter', sans-serif",
+      }}
+    >
+      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 600, color: "#F3EEE3", marginBottom: 16 }}>
+        Reviews
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <button onClick={() => setView("assets-liabilities")} style={bigHomeBtn}>
+          Assets &amp; Liabilities
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AssetsLiabilitiesScreen() {
+  const [loading, setLoading] = useState(true);
+  const [totals, setTotals] = useState({ goldAssets: 0, goldLiabilities: 0, wageAssets: 0, wageLiabilities: 0 });
+  const [debugInfo, setDebugInfo] = useState({ clientCount: 0, error: null });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let customers = [];
+      let fetchError = null;
+      try {
+        const res = await window.storage.get("customers-list", false);
+        customers = res ? JSON.parse(res.value) : [];
+      } catch (e) {
+        customers = [];
+        fetchError = "customers-list: " + (e && e.message ? e.message : String(e));
+      }
+
+      let goldAssets = 0;
+      let goldLiabilities = 0;
+      let wageAssets = 0;
+      let wageLiabilities = 0;
+
+      for (const c of customers) {
+        let ledger = emptyLedger();
+        try {
+          const res = await window.storage.get("ledger:" + c.id, false);
+          if (res) ledger = { ...emptyLedger(), ...JSON.parse(res.value) };
+        } catch (e) {
+          if (!fetchError) fetchError = "ledger:" + c.id + ": " + (e && e.message ? e.message : String(e));
+        }
+        const goldBalance = (ledger.gold || []).reduce((s, e) => s + e.amount, 0);
+        const wageBalance = (ledger.wages || []).reduce((s, e) => s + e.amount, 0);
+        if (goldBalance > 0) goldAssets += goldBalance;
+        else if (goldBalance < 0) goldLiabilities += Math.abs(goldBalance);
+        if (wageBalance > 0) wageAssets += wageBalance;
+        else if (wageBalance < 0) wageLiabilities += Math.abs(wageBalance);
+      }
+
+      if (!cancelled) {
+        setTotals({ goldAssets, goldLiabilities, wageAssets, wageLiabilities });
+        setDebugInfo({ clientCount: customers.length, error: fetchError });
+        setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (loading) {
+    return <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "2rem 0" }}>Loading…</div>;
+  }
+
+  return (
+    <div>
+      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 600, color: "#F3EEE3", marginBottom: 16 }}>
+        Assets &amp; Liabilities
+      </div>
+      <div style={{ fontSize: 12, letterSpacing: 0.3, color: "#8B7355", marginBottom: 8 }}>Gold</div>
+      <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+        <SummaryCard label="Owed to you" value={grams(totals.goldAssets)} color="#D4756B" />
+        <SummaryCard label="You owe" value={grams(totals.goldLiabilities)} color="#7FAE7A" />
+      </div>
+      <div style={{ fontSize: 12, letterSpacing: 0.3, color: "#8B7355", marginBottom: 8 }}>Wages</div>
+      <div style={{ display: "flex", gap: 10 }}>
+        <SummaryCard label="Owed to you" value={money(totals.wageAssets)} color="#D4756B" />
+        <SummaryCard label="You owe" value={money(totals.wageLiabilities)} color="#7FAE7A" />
+      </div>
+      <div style={{ fontSize: 11, color: "#5A5340", marginTop: 20, textAlign: "center" }}>
+        {debugInfo.clientCount} client(s) checked
+        {debugInfo.error ? ` — error: ${debugInfo.error}` : ""}
+      </div>
+    </div>
+  );
+}
+
+function SummaryCard({ label, value, color }) {
+  return (
+    <div
+      style={{
+        flex: 1,
+        background: "#232019",
+        border: "1px solid #3A3527",
+        borderRadius: 12,
+        padding: "0.85rem",
+        textAlign: "center",
+      }}
+    >
+      <div style={{ fontSize: 12, color: "#8B7355", marginBottom: 4 }}>{label}</div>
+      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, fontWeight: 600, color }}>{value}</div>
+    </div>
+  );
+}
+
 const bigHomeBtn = {
   display: "flex",
   alignItems: "center",
@@ -1821,7 +1962,7 @@ export default function Ledger() {
       </button>
       {homeTab === "clients" && <ClientsTab />}
       {homeTab === "receipts" && <PlaceholderTab title="Receipts" />}
-      {homeTab === "reviews" && <PlaceholderTab title="Reviews" />}
+      {homeTab === "reviews" && <ReviewsTab />}
     </div>
   );
 }
