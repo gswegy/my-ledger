@@ -87,13 +87,29 @@ async function fetchLedgerFor(customerId) {
   }
 }
 
-// Fetches every listed customer's ledger concurrently (instead of one
-// request at a time) — this is what makes Backup and the cross-client
-// Review screens load in roughly one round-trip instead of N.
+// Fetches every listed customer's ledger. Tries the single combined
+// "all-ledgers" blob first (one request total); if that doesn't exist yet
+// (e.g. this is the first load since the combined-blob change shipped),
+// falls back to fetching each client's ledger individually, in parallel.
 async function fetchAllLedgers(customers) {
-  const pairs = await Promise.all(
-    (customers || []).map(async (c) => [c.id, await fetchLedgerFor(c.id)])
-  );
+  const list = customers || [];
+  if (list.length === 0) return {};
+  try {
+    const res = await window.storage.get("all-ledgers", false);
+    if (res) {
+      const parsed = JSON.parse(res.value);
+      if (parsed && typeof parsed === "object") {
+        const result = {};
+        list.forEach((c) => {
+          result[c.id] = parsed[c.id] || emptyLedger();
+        });
+        return result;
+      }
+    }
+  } catch (e) {
+    // no combined blob yet — fall back below
+  }
+  const pairs = await Promise.all(list.map(async (c) => [c.id, await fetchLedgerFor(c.id)]));
   return Object.fromEntries(pairs);
 }
 
@@ -131,6 +147,13 @@ function ClientsTab() {
   const [editingCategoryId, setEditingCategoryId] = useState(null);
   const [categoryDraftName, setCategoryDraftName] = useState("");
   const [categoryEditError, setCategoryEditError] = useState("");
+  // Mirrors `ledgers` synchronously so saveLedger can write a fresh combined
+  // blob without depending on a possibly-stale closure over `ledgers`.
+  const ledgersRef = useRef({});
+  const allLedgersLoadedRef = useRef(false);
+  useEffect(() => {
+    ledgersRef.current = ledgers;
+  }, [ledgers]);
 
   useEffect(() => {
     (async () => {
@@ -145,6 +168,23 @@ function ClientsTab() {
         setCategories(res ? JSON.parse(res.value) : []);
       } catch (e) {
         setCategories([]);
+      }
+      // One request for every client's ledger, instead of one request per
+      // client. If this key doesn't exist yet, the per-client fallback
+      // effect below loads everyone individually and then writes this key
+      // so every subsequent load (including this one, next time) is fast.
+      try {
+        const res = await window.storage.get("all-ledgers", false);
+        if (res) {
+          const parsed = JSON.parse(res.value);
+          if (parsed && typeof parsed === "object") {
+            setLedgers(parsed);
+            ledgersRef.current = parsed;
+            allLedgersLoadedRef.current = true;
+          }
+        }
+      } catch (e) {
+        // no combined blob yet — per-client fallback effect will build one
       }
       setLoading(false);
     })();
@@ -182,11 +222,19 @@ function ClientsTab() {
   }, [ledgers]);
 
   const saveLedger = useCallback(async (customerId, data) => {
-    setLedgers((prev) => ({ ...prev, [customerId]: data }));
+    const next = { ...ledgersRef.current, [customerId]: data };
+    ledgersRef.current = next;
+    setLedgers(next);
     try {
       await window.storage.set("ledger:" + customerId, JSON.stringify(data), false);
     } catch (e) {
       console.error("save ledger failed", e);
+    }
+    try {
+      await window.storage.set("all-ledgers", JSON.stringify(next), false);
+      allLedgersLoadedRef.current = true;
+    } catch (e) {
+      console.error("save all-ledgers failed", e);
     }
   }, []);
 
@@ -410,8 +458,24 @@ function ClientsTab() {
     const restoredLedgers = parsed.ledgers && typeof parsed.ledgers === "object" ? parsed.ledgers : {};
     await saveCustomers(restoredCustomers);
     await saveCategories(restoredCategories);
+    const normalized = {};
     for (const id of Object.keys(restoredLedgers)) {
-      await saveLedger(id, { ...emptyLedger(), ...restoredLedgers[id] });
+      normalized[id] = { ...emptyLedger(), ...restoredLedgers[id] };
+    }
+    ledgersRef.current = normalized;
+    setLedgers(normalized);
+    for (const [id, data] of Object.entries(normalized)) {
+      try {
+        await window.storage.set("ledger:" + id, JSON.stringify(data), false);
+      } catch (e) {
+        console.error("restore ledger failed", id, e);
+      }
+    }
+    try {
+      await window.storage.set("all-ledgers", JSON.stringify(normalized), false);
+      allLedgersLoadedRef.current = true;
+    } catch (e) {
+      console.error("restore all-ledgers failed", e);
     }
   }
 
@@ -474,6 +538,7 @@ function ClientsTab() {
   }, [loading, customers]);
 
   useEffect(() => {
+    if (allLedgersLoadedRef.current) return; // combined blob already covers everyone
     if (customers && customers.length && screen === "list") {
       customers.forEach((c) => {
         if (!ledgers[c.id]) loadLedger(c.id);
@@ -481,6 +546,22 @@ function ClientsTab() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customers, screen]);
+
+  // One-time migration: once every client has been loaded individually
+  // (the fallback path above, only used the first time this device has no
+  // combined blob yet), persist them all under one key so every future
+  // load — including Backup and the Review screens — is a single request.
+  useEffect(() => {
+    if (allLedgersLoadedRef.current) return;
+    if (!customers || customers.length === 0) return;
+    const allLoaded = customers.every((c) => ledgers[c.id]);
+    if (!allLoaded) return;
+    allLedgersLoadedRef.current = true;
+    window.storage.set("all-ledgers", JSON.stringify(ledgers), false).catch((e) => {
+      console.error("build all-ledgers failed", e);
+      allLedgersLoadedRef.current = false;
+    });
+  }, [customers, ledgers]);
 
   const fontLink = (
     <link
