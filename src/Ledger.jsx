@@ -76,6 +76,23 @@ function buildMonthlyReview(entries) {
 
 const emptyLedger = () => ({ gold: [], wages: [], prices: {} });
 
+// Entries created before/without the "books" feature (or via the normal
+// add-entry flow) have no `book` field and count as the ongoing "current"
+// book. Entries imported from an archive (e.g. a past year) carry an
+// explicit book id like "2025". Headline balances only reflect "current" —
+// archived books are reference data you view separately.
+function distinctBooks(entries) {
+  const set = new Set();
+  (entries || []).forEach((e) => {
+    if (e.book) set.add(e.book);
+  });
+  return Array.from(set).sort();
+}
+
+function entriesForBook(entries, book) {
+  return (entries || []).filter((e) => (book === "current" ? !e.book : e.book === book));
+}
+
 function ClientsTab() {
   const [customers, setCustomers] = useState(null);
   const [categories, setCategories] = useState(null);
@@ -173,8 +190,8 @@ function ClientsTab() {
     openCustomer(c.id);
   }
 
-  function startEntry(kind) {
-    setEntryForm({ open: kind, direction: "take", amount: "", date: todayStr(), note: "", error: "", editId: null });
+  function startEntry(kind, book) {
+    setEntryForm({ open: kind, direction: "take", amount: "", date: todayStr(), note: "", error: "", editId: null, book: book && book !== "current" ? book : null });
   }
 
   function editEntry(kind, entry) {
@@ -186,6 +203,7 @@ function ClientsTab() {
       note: entry.note || "",
       error: "",
       editId: entry.id,
+      book: entry.book || null,
     });
   }
 
@@ -206,11 +224,17 @@ function ClientsTab() {
           : e
       );
     } else {
-      const record = { id: uid(), amount: signedAmount, date: entryForm.date || todayStr(), note: entryForm.note.trim() };
+      const record = {
+        id: uid(),
+        amount: signedAmount,
+        date: entryForm.date || todayStr(),
+        note: entryForm.note.trim(),
+        ...(entryForm.book ? { book: entryForm.book } : {}),
+      };
       next[listKey] = [record, ...current[listKey]];
     }
     await saveLedger(activeId, next);
-    setEntryForm({ open: null, direction: "take", amount: "", date: todayStr(), note: "", error: "", editId: null });
+    setEntryForm({ open: null, direction: "take", amount: "", date: todayStr(), note: "", error: "", editId: null, book: null });
   }
 
   async function deleteEntry(kind, id) {
@@ -296,8 +320,8 @@ function ClientsTab() {
   function balancesFor(id) {
     const l = ledgers[id];
     if (!l) return null;
-    const gold = l.gold.reduce((s, e) => s + e.amount, 0);
-    const wages = l.wages.reduce((s, e) => s + e.amount, 0);
+    const gold = entriesForBook(l.gold, "current").reduce((s, e) => s + e.amount, 0);
+    const wages = entriesForBook(l.wages, "current").reduce((s, e) => s + e.amount, 0);
     return { gold, wages };
   }
 
@@ -1053,6 +1077,13 @@ function DetailScreen({
   const [contactOpen, setContactOpen] = useState(false);
   const [phoneDraft, setPhoneDraft] = useState(customer.phone || "");
   const [addressDraft, setAddressDraft] = useState(customer.address || "");
+  const [goldBook, setGoldBook] = useState("current");
+  const [wagesBook, setWagesBook] = useState("current");
+
+  const goldBooks = ["current", ...distinctBooks(ledger.gold)];
+  const wagesBooks = ["current", ...distinctBooks(ledger.wages)];
+  const goldEntriesForBook = entriesForBook(ledger.gold, goldBooks.includes(goldBook) ? goldBook : "current");
+  const wagesEntriesForBook = entriesForBook(ledger.wages, wagesBooks.includes(wagesBook) ? wagesBook : "current");
 
   function handleNameClick() {
     if (editingName) return;
@@ -1213,39 +1244,55 @@ function DetailScreen({
       </div>
 
       {tab === "gold" && (
-        <LedgerSection
-          title="Gold"
-          takeLabel="Took gold"
-          returnLabel="Gave back"
-          emptyText="No gold entries yet."
-          entries={ledger.gold}
-          kind="gold"
-          formatAmount={grams}
-          onAdd={() => startEntry("gold")}
-          onEdit={(entry) => editEntry("gold", entry)}
-          onDelete={(id) => deleteEntry("gold", id)}
-          entryForm={entryForm}
-          setEntryForm={setEntryForm}
-          submitEntry={submitEntry}
-        />
+        <div>
+          {goldBooks.length > 1 && (
+            <BookSelector books={goldBooks} active={goldBook} onSelect={setGoldBook} />
+          )}
+          {goldBook !== "current" && (
+            <BookBalanceLine entries={goldEntriesForBook} formatAmount={grams} />
+          )}
+          <LedgerSection
+            title="Gold"
+            takeLabel="Took gold"
+            returnLabel="Gave back"
+            emptyText="No gold entries yet."
+            entries={goldEntriesForBook}
+            kind="gold"
+            formatAmount={grams}
+            onAdd={() => startEntry("gold", goldBook)}
+            onEdit={(entry) => editEntry("gold", entry)}
+            onDelete={(id) => deleteEntry("gold", id)}
+            entryForm={entryForm}
+            setEntryForm={setEntryForm}
+            submitEntry={submitEntry}
+          />
+        </div>
       )}
 
       {tab === "wages" && (
-        <LedgerSection
-          title="Wages"
-          takeLabel="Took wages"
-          returnLabel="Paid back"
-          emptyText="No wage entries yet."
-          entries={ledger.wages}
-          kind="wages"
-          formatAmount={money}
-          onAdd={() => startEntry("wages")}
-          onEdit={(entry) => editEntry("wages", entry)}
-          onDelete={(id) => deleteEntry("wages", id)}
-          entryForm={entryForm}
-          setEntryForm={setEntryForm}
-          submitEntry={submitEntry}
-        />
+        <div>
+          {wagesBooks.length > 1 && (
+            <BookSelector books={wagesBooks} active={wagesBook} onSelect={setWagesBook} />
+          )}
+          {wagesBook !== "current" && (
+            <BookBalanceLine entries={wagesEntriesForBook} formatAmount={money} />
+          )}
+          <LedgerSection
+            title="Wages"
+            takeLabel="Took wages"
+            returnLabel="Paid back"
+            emptyText="No wage entries yet."
+            entries={wagesEntriesForBook}
+            kind="wages"
+            formatAmount={money}
+            onAdd={() => startEntry("wages", wagesBook)}
+            onEdit={(entry) => editEntry("wages", entry)}
+            onDelete={(id) => deleteEntry("wages", id)}
+            entryForm={entryForm}
+            setEntryForm={setEntryForm}
+            submitEntry={submitEntry}
+          />
+        </div>
       )}
 
       {tab === "review" && (
@@ -1299,6 +1346,45 @@ function CardIcon() {
       <line x1="2.5" y1="9.5" x2="21.5" y2="9.5" stroke="currentColor" strokeWidth="1.6" />
       <line x1="5.5" y1="14" x2="10.5" y2="14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
+  );
+}
+
+function bookLabel(book) {
+  return book === "current" ? "Current" : book;
+}
+
+function BookSelector({ books, active, onSelect }) {
+  return (
+    <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+      {books.map((b) => (
+        <button
+          key={b}
+          onClick={() => onSelect(b)}
+          style={{
+            background: active === b ? "#C9A227" : "#232019",
+            border: "1px solid " + (active === b ? "#C9A227" : "#3A3527"),
+            borderRadius: 999,
+            padding: "0.3rem 0.8rem",
+            color: active === b ? "#1C1913" : "#C9A227",
+            fontSize: 12.5,
+            fontWeight: 500,
+            cursor: "pointer",
+          }}
+        >
+          {bookLabel(b)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function BookBalanceLine({ entries, formatAmount }) {
+  const total = (entries || []).reduce((s, e) => s + e.amount, 0);
+  const color = total > 0 ? "#D4756B" : total < 0 ? "#7FAE7A" : "#8B7355";
+  return (
+    <div style={{ fontSize: 12.5, color: "#8B7355", marginBottom: 10 }}>
+      Balance for this book: <span style={{ color, fontWeight: 500 }}>{formatAmount(total)}</span>
+    </div>
   );
 }
 
