@@ -325,6 +325,47 @@ function ClientsTab() {
     return { gold, wages };
   }
 
+  // Sums every entry across every book (current + 2025 + 2026 + any future
+  // books) — used on the client list so the headline figure reflects the
+  // client's true total, not just the current/open book.
+  function totalBalancesFor(id) {
+    const l = ledgers[id];
+    if (!l) return null;
+    const gold = (l.gold || []).reduce((s, e) => s + e.amount, 0);
+    const wages = (l.wages || []).reduce((s, e) => s + e.amount, 0);
+    return { gold, wages };
+  }
+
+  async function addBook(kind, bookId) {
+    const current = ledgers[activeId] || emptyLedger();
+    const extra = (current.extraBooks && current.extraBooks[kind]) || [];
+    if (extra.includes(bookId) || bookId === "current") return;
+    const next = {
+      ...current,
+      extraBooks: {
+        gold: (current.extraBooks && current.extraBooks.gold) || [],
+        wages: (current.extraBooks && current.extraBooks.wages) || [],
+        [kind]: [...extra, bookId],
+      },
+    };
+    await saveLedger(activeId, next);
+  }
+
+  async function deleteBook(kind, bookId) {
+    const current = ledgers[activeId] || emptyLedger();
+    const extra = (current.extraBooks && current.extraBooks[kind]) || [];
+    const next = {
+      ...current,
+      [kind]: (current[kind] || []).filter((e) => e.book !== bookId),
+      extraBooks: {
+        gold: (current.extraBooks && current.extraBooks.gold) || [],
+        wages: (current.extraBooks && current.extraBooks.wages) || [],
+        [kind]: extra.filter((b) => b !== bookId),
+      },
+    };
+    await saveLedger(activeId, next);
+  }
+
   async function buildBackupData() {
     const list = customers || [];
     const allLedgers = {};
@@ -467,7 +508,7 @@ function ClientsTab() {
         <ListScreen
           customers={customers || []}
           ledgers={ledgers}
-          balancesFor={balancesFor}
+          balancesFor={totalBalancesFor}
           onOpen={openCustomer}
           newName={newName}
           setNewName={setNewName}
@@ -532,6 +573,8 @@ function ClientsTab() {
           onUpdateContact={(patch) => updateCustomerContact(active.id, patch)}
           setClientPrice={setClientPrice}
           onManageCategories={() => setScreen("categories")}
+          onAddBook={(kind, bookId) => addBook(kind, bookId)}
+          onDeleteBook={(kind, bookId) => deleteBook(kind, bookId)}
           styles={styles}
         />
       )}
@@ -1068,6 +1111,8 @@ function DetailScreen({
   onUpdateContact,
   setClientPrice,
   onManageCategories,
+  onAddBook,
+  onDeleteBook,
   styles,
 }) {
   const [nameActionsOpen, setNameActionsOpen] = useState(false);
@@ -1080,10 +1125,24 @@ function DetailScreen({
   const [goldBook, setGoldBook] = useState("current");
   const [wagesBook, setWagesBook] = useState("current");
 
-  const goldBooks = ["current", ...distinctBooks(ledger.gold)];
-  const wagesBooks = ["current", ...distinctBooks(ledger.wages)];
+  const goldExtraBooks = (ledger.extraBooks && ledger.extraBooks.gold) || [];
+  const wagesExtraBooks = (ledger.extraBooks && ledger.extraBooks.wages) || [];
+  const goldBooks = ["current", ...Array.from(new Set([...distinctBooks(ledger.gold), ...goldExtraBooks])).sort()];
+  const wagesBooks = ["current", ...Array.from(new Set([...distinctBooks(ledger.wages), ...wagesExtraBooks])).sort()];
   const goldEntriesForBook = entriesForBook(ledger.gold, goldBooks.includes(goldBook) ? goldBook : "current");
   const wagesEntriesForBook = entriesForBook(ledger.wages, wagesBooks.includes(wagesBook) ? wagesBook : "current");
+
+  function handleAddBook(kind, bookId) {
+    onAddBook(kind, bookId);
+    if (kind === "gold") setGoldBook(bookId);
+    else setWagesBook(bookId);
+  }
+
+  function handleDeleteBook(kind, bookId) {
+    onDeleteBook(kind, bookId);
+    if (kind === "gold" && goldBook === bookId) setGoldBook("current");
+    if (kind === "wages" && wagesBook === bookId) setWagesBook("current");
+  }
 
   function handleNameClick() {
     if (editingName) return;
@@ -1245,9 +1304,13 @@ function DetailScreen({
 
       {tab === "gold" && (
         <div>
-          {goldBooks.length > 1 && (
-            <BookSelector books={goldBooks} active={goldBook} onSelect={setGoldBook} />
-          )}
+          <BookSelector
+            books={goldBooks}
+            active={goldBook}
+            onSelect={setGoldBook}
+            onAddBook={(bookId) => handleAddBook("gold", bookId)}
+            onDeleteBook={(bookId) => handleDeleteBook("gold", bookId)}
+          />
           {goldBook !== "current" && (
             <BookBalanceLine entries={goldEntriesForBook} formatAmount={grams} />
           )}
@@ -1271,9 +1334,13 @@ function DetailScreen({
 
       {tab === "wages" && (
         <div>
-          {wagesBooks.length > 1 && (
-            <BookSelector books={wagesBooks} active={wagesBook} onSelect={setWagesBook} />
-          )}
+          <BookSelector
+            books={wagesBooks}
+            active={wagesBook}
+            onSelect={setWagesBook}
+            onAddBook={(bookId) => handleAddBook("wages", bookId)}
+            onDeleteBook={(bookId) => handleDeleteBook("wages", bookId)}
+          />
           {wagesBook !== "current" && (
             <BookBalanceLine entries={wagesEntriesForBook} formatAmount={money} />
           )}
@@ -1353,27 +1420,155 @@ function bookLabel(book) {
   return book === "current" ? "Current" : book;
 }
 
-function BookSelector({ books, active, onSelect }) {
+function BookSelector({ books, active, onSelect, onAddBook, onDeleteBook }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [newBookName, setNewBookName] = useState("");
+  const [addError, setAddError] = useState("");
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  function closeAll() {
+    setMenuOpen(false);
+    setAdding(false);
+    setNewBookName("");
+    setAddError("");
+    setConfirmingDelete(false);
+  }
+
+  function submitAddBook() {
+    const name = newBookName.trim();
+    if (!name) {
+      setAddError("Enter a book name");
+      return;
+    }
+    if (name === "current" || books.includes(name)) {
+      setAddError("That book already exists");
+      return;
+    }
+    onAddBook(name);
+    closeAll();
+  }
+
+  function confirmDelete() {
+    onDeleteBook(active);
+    closeAll();
+  }
+
   return (
-    <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
-      {books.map((b) => (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {books.map((b) => (
+            <button
+              key={b}
+              onClick={() => onSelect(b)}
+              style={{
+                background: active === b ? "#C9A227" : "#232019",
+                border: "1px solid " + (active === b ? "#C9A227" : "#3A3527"),
+                borderRadius: 999,
+                padding: "0.3rem 0.8rem",
+                color: active === b ? "#1C1913" : "#C9A227",
+                fontSize: 12.5,
+                fontWeight: 500,
+                cursor: "pointer",
+              }}
+            >
+              {bookLabel(b)}
+            </button>
+          ))}
+        </div>
         <button
-          key={b}
-          onClick={() => onSelect(b)}
+          onClick={() => (menuOpen ? closeAll() : setMenuOpen(true))}
+          aria-label="Book options"
           style={{
-            background: active === b ? "#C9A227" : "#232019",
-            border: "1px solid " + (active === b ? "#C9A227" : "#3A3527"),
-            borderRadius: 999,
-            padding: "0.3rem 0.8rem",
-            color: active === b ? "#1C1913" : "#C9A227",
-            fontSize: 12.5,
-            fontWeight: 500,
+            background: "transparent",
+            border: "none",
+            color: "#8B7355",
+            fontSize: 18,
+            lineHeight: 1,
+            padding: "0.3rem 0.4rem",
             cursor: "pointer",
+            flexShrink: 0,
           }}
         >
-          {bookLabel(b)}
+          ⋮
         </button>
-      ))}
+      </div>
+
+      {menuOpen && (
+        <div
+          style={{
+            marginTop: 8,
+            background: "#232019",
+            border: "1px solid #3A3527",
+            borderRadius: 10,
+            padding: "0.75rem",
+          }}
+        >
+          {!adding && !confirmingDelete && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <button
+                onClick={() => setAdding(true)}
+                style={{ ...smallBtn, textAlign: "left" }}
+              >
+                Add new book
+              </button>
+              <button
+                onClick={() => setConfirmingDelete(true)}
+                disabled={active === "current"}
+                style={{
+                  ...smallBtn,
+                  textAlign: "left",
+                  color: active === "current" ? "#5A5340" : "#D4756B",
+                  opacity: active === "current" ? 0.6 : 1,
+                }}
+              >
+                Delete "{bookLabel(active)}" book
+              </button>
+            </div>
+          )}
+
+          {adding && (
+            <div>
+              <div style={{ fontSize: 13, color: "#8B7355", marginBottom: 8 }}>
+                e.g. 2027
+              </div>
+              <input
+                value={newBookName}
+                onChange={(e) => setNewBookName(e.target.value)}
+                placeholder="Book name"
+                style={inputStyle}
+                autoFocus
+              />
+              {addError && <div style={{ color: "#D4756B", fontSize: 13, marginTop: 6 }}>{addError}</div>}
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <button onClick={submitAddBook} style={{ ...primaryBtn, flex: 1 }}>
+                  Add book
+                </button>
+                <button onClick={closeAll} style={{ ...smallBtn, flex: 1, textAlign: "center" }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {confirmingDelete && (
+            <div>
+              <div style={{ fontSize: 13, color: "#D4756B", marginBottom: 8 }}>
+                Delete the "{bookLabel(active)}" book? All its entries will be permanently removed.
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={confirmDelete} style={{ ...primaryBtn, background: "#D4756B", color: "#1C1913", flex: 1 }}>
+                  Yes, delete
+                </button>
+                <button onClick={closeAll} style={{ ...smallBtn, flex: 1, textAlign: "center" }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
