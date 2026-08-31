@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -62,7 +62,7 @@ function buildMonthlyReview(entries) {
 
 const emptyLedger = () => ({ gold: [], wages: [], prices: {} });
 
-export default function Ledger() {
+function ClientsTab() {
   const [customers, setCustomers] = useState(null);
   const [categories, setCategories] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -322,6 +322,64 @@ export default function Ledger() {
     }
   }
 
+  async function cleanupOldDailyBackups(keep = 14) {
+    try {
+      const res = await window.storage.list("daily-backup:", false);
+      const keys = ((res && res.keys) || []).slice().sort();
+      const toDelete = keys.slice(0, Math.max(0, keys.length - keep));
+      for (const k of toDelete) {
+        try {
+          await window.storage.delete(k, false);
+        } catch (e) {
+          // ignore individual delete failures
+        }
+      }
+    } catch (e) {
+      // listing not available; skip cleanup
+    }
+  }
+
+  async function runDailyBackupIfNeeded() {
+    const today = todayStr();
+    try {
+      const last = await window.storage.get("last-daily-backup", false);
+      if (last && last.value === today) return;
+    } catch (e) {
+      // no record yet, proceed to create one
+    }
+    try {
+      const data = await buildBackupData();
+      await window.storage.set("daily-backup:" + today, data, false);
+      await window.storage.set("last-daily-backup", today, false);
+      await cleanupOldDailyBackups(14);
+    } catch (e) {
+      console.error("daily backup failed", e);
+    }
+  }
+
+  async function listDailyBackups() {
+    try {
+      const res = await window.storage.list("daily-backup:", false);
+      const keys = ((res && res.keys) || []).slice().sort().reverse();
+      return keys.map((k) => k.replace("daily-backup:", ""));
+    } catch (e) {
+      return [];
+    }
+  }
+
+  async function getDailyBackup(dateStr) {
+    const res = await window.storage.get("daily-backup:" + dateStr, false);
+    return res ? res.value : null;
+  }
+
+  const autoBackupRanRef = useRef(false);
+  useEffect(() => {
+    if (loading || autoBackupRanRef.current || customers === null) return;
+    autoBackupRanRef.current = true;
+    runDailyBackupIfNeeded();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, customers]);
+
   useEffect(() => {
     if (customers && customers.length && screen === "list") {
       customers.forEach((c) => {
@@ -406,7 +464,14 @@ export default function Ledger() {
       )}
 
       {screen === "backup" && (
-        <BackupScreen onBack={() => setScreen("list")} buildBackupData={buildBackupData} restoreFromBackup={restoreFromBackup} styles={styles} />
+        <BackupScreen
+          onBack={() => setScreen("list")}
+          buildBackupData={buildBackupData}
+          restoreFromBackup={restoreFromBackup}
+          listDailyBackups={listDailyBackups}
+          getDailyBackup={getDailyBackup}
+          styles={styles}
+        />
       )}
 
       {screen === "detail" && active && (
@@ -566,13 +631,46 @@ function ListScreen({ customers, ledgers, balancesFor, onOpen, newName, setNewNa
   );
 }
 
-function BackupScreen({ onBack, buildBackupData, restoreFromBackup, styles }) {
+function BackupScreen({ onBack, buildBackupData, restoreFromBackup, listDailyBackups, getDailyBackup, styles }) {
   const [exportText, setExportText] = useState("");
   const [exportLoading, setExportLoading] = useState(true);
   const [copyStatus, setCopyStatus] = useState("");
   const [importText, setImportText] = useState("");
   const [importStatus, setImportStatus] = useState("");
   const [confirmingImport, setConfirmingImport] = useState(false);
+  const [dailyBackups, setDailyBackups] = useState([]);
+  const [dailyLoading, setDailyLoading] = useState(true);
+  const [confirmingDaily, setConfirmingDaily] = useState(null);
+  const [dailyStatus, setDailyStatus] = useState("");
+  const fileInputRef = useRef(null);
+
+  function handleDownload() {
+    const blob = new Blob([exportText], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "modern-gold-backup-" + todayStr() + ".json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function handleUploadClick() {
+    if (fileInputRef.current) fileInputRef.current.click();
+  }
+
+  function handleFileSelected(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setImportText(String(reader.result || ""));
+      setImportStatus("");
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -583,11 +681,31 @@ function BackupScreen({ onBack, buildBackupData, restoreFromBackup, styles }) {
         setExportLoading(false);
       }
     });
+    setDailyLoading(true);
+    listDailyBackups().then((dates) => {
+      if (!cancelled) {
+        setDailyBackups(dates);
+        setDailyLoading(false);
+      }
+    });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function handleRestoreDaily(dateStr) {
+    setDailyStatus("");
+    try {
+      const text = await getDailyBackup(dateStr);
+      if (!text) throw new Error("missing");
+      await restoreFromBackup(text);
+      setDailyStatus("Restored " + dateStr + " successfully");
+      setConfirmingDaily(null);
+    } catch (e) {
+      setDailyStatus("Couldn't restore that backup — nothing was changed");
+    }
+  }
 
   async function handleCopy() {
     try {
@@ -636,15 +754,83 @@ function BackupScreen({ onBack, buildBackupData, restoreFromBackup, styles }) {
             <button onClick={handleCopy} style={{ ...primaryBtn, marginTop: 10, width: "100%" }}>
               {copyStatus || "Copy backup"}
             </button>
+            <button onClick={handleDownload} style={{ ...smallBtn, marginTop: 8, width: "100%", textAlign: "center" }}>
+              Save to file
+            </button>
           </>
+        )}
+      </div>
+
+      <div style={{ background: "#232019", border: "1px solid #3A3527", borderRadius: 12, padding: "1rem", marginBottom: "1.25rem" }}>
+        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8, color: "#C9A227" }}>Daily backups</div>
+        <div style={{ fontSize: 13, color: "#8B7355", marginBottom: 10 }}>
+          A snapshot is saved automatically once a day when you open the app. If something ever goes wrong, restore the most recent good one below.
+        </div>
+        {dailyLoading ? (
+          <div style={{ color: "#8B7355", fontSize: 13 }}>Loading…</div>
+        ) : dailyBackups.length === 0 ? (
+          <div style={{ color: "#8B7355", fontSize: 13 }}>No automatic backups yet — one will be created next time you open the app.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {dailyBackups.map((dateStr) =>
+              confirmingDaily === dateStr ? (
+                <div key={dateStr} style={{ background: "#1C1913", border: "1px solid #D4756B", borderRadius: 8, padding: "0.6rem 0.75rem" }}>
+                  <div style={{ fontSize: 13, color: "#D4756B", marginBottom: 8 }}>
+                    Restore the {dateStr} backup? This overwrites everything currently in the app.
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => handleRestoreDaily(dateStr)} style={{ ...primaryBtn, background: "#D4756B", color: "#1C1913", flex: 1 }}>
+                      Yes, restore
+                    </button>
+                    <button onClick={() => setConfirmingDaily(null)} style={{ ...smallBtn, flex: 1, textAlign: "center" }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  key={dateStr}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    background: "#1C1913",
+                    border: "1px solid #3A3527",
+                    borderRadius: 8,
+                    padding: "0.6rem 0.75rem",
+                  }}
+                >
+                  <div style={{ fontSize: 14, color: "#F3EEE3" }}>{dateStr}</div>
+                  <button onClick={() => setConfirmingDaily(dateStr)} style={smallBtn}>
+                    Restore
+                  </button>
+                </div>
+              )
+            )}
+          </div>
+        )}
+        {dailyStatus && (
+          <div style={{ fontSize: 13, color: dailyStatus.startsWith("Restored") ? "#7FAE7A" : "#D4756B", marginTop: 10 }}>
+            {dailyStatus}
+          </div>
         )}
       </div>
 
       <div style={{ background: "#232019", border: "1px solid #3A3527", borderRadius: 12, padding: "1rem" }}>
         <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8, color: "#C9A227" }}>Restore from backup</div>
         <div style={{ fontSize: 13, color: "#8B7355", marginBottom: 10 }}>
-          Paste a previously copied backup here. This replaces everything currently in the app.
+          Paste a previously copied backup here, or upload a saved backup file. This replaces everything currently in the app.
         </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json,.txt,application/json,text/plain"
+          onChange={handleFileSelected}
+          style={{ display: "none" }}
+        />
+        <button onClick={handleUploadClick} style={{ ...smallBtn, width: "100%", textAlign: "center", marginBottom: 10 }}>
+          Upload backup file
+        </button>
         <textarea
           value={importText}
           onChange={(e) => setImportText(e.target.value)}
@@ -1559,3 +1745,83 @@ const backBtn = {
   padding: 0,
   marginBottom: 16,
 };
+
+function PlaceholderTab({ title }) {
+  return (
+    <div
+      style={{
+        fontFamily: "'Inter', sans-serif",
+        maxWidth: 480,
+        margin: "0 auto",
+        padding: "3rem 1rem",
+        textAlign: "center",
+        color: "#8B7355",
+      }}
+    >
+      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 600, color: "#F3EEE3", marginBottom: 8 }}>
+        {title}
+      </div>
+      <div style={{ fontSize: 14 }}>Coming soon.</div>
+    </div>
+  );
+}
+
+const bigHomeBtn = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: "100%",
+  padding: "1.5rem",
+  fontFamily: "'Fraunces', serif",
+  fontSize: 20,
+  fontWeight: 600,
+  color: "#F3EEE3",
+  background: "#232019",
+  border: "1px solid #3A3527",
+  borderRadius: 14,
+  cursor: "pointer",
+};
+
+export default function Ledger() {
+  const [homeTab, setHomeTab] = useState(null);
+
+  if (!homeTab) {
+    return (
+      <div
+        style={{
+          fontFamily: "'Inter', sans-serif",
+          maxWidth: 480,
+          margin: "0 auto",
+          padding: "2rem 1rem",
+        }}
+      >
+        <div style={{ fontSize: 12, letterSpacing: 0.3, color: "#8B7355", marginBottom: 2 }}>Home</div>
+        <h1 style={{ fontFamily: "'Fraunces', serif", fontSize: 28, fontWeight: 600, margin: "0 0 1.5rem", color: "#F3EEE3" }}>
+          Modern Gold
+        </h1>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <button onClick={() => setHomeTab("clients")} style={bigHomeBtn}>
+            Clients
+          </button>
+          <button onClick={() => setHomeTab("receipts")} style={bigHomeBtn}>
+            Receipts
+          </button>
+          <button onClick={() => setHomeTab("reviews")} style={bigHomeBtn}>
+            Reviews
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ fontFamily: "'Inter', sans-serif", maxWidth: 480, margin: "0 auto", padding: "1rem 1rem 0" }}>
+      <button onClick={() => setHomeTab(null)} style={backBtn}>
+        Home
+      </button>
+      {homeTab === "clients" && <ClientsTab />}
+      {homeTab === "receipts" && <PlaceholderTab title="Receipts" />}
+      {homeTab === "reviews" && <PlaceholderTab title="Reviews" />}
+    </div>
+  );
+}
