@@ -87,29 +87,13 @@ async function fetchLedgerFor(customerId) {
   }
 }
 
-// Fetches every listed customer's ledger. Tries the single combined
-// "all-ledgers" blob first (one request total); if that doesn't exist yet
-// (e.g. this is the first load since the combined-blob change shipped),
-// falls back to fetching each client's ledger individually, in parallel.
+// Fetches every listed customer's ledger concurrently (instead of one
+// request at a time) — this is what makes Backup and the cross-client
+// Review screens load in roughly one round-trip instead of N.
 async function fetchAllLedgers(customers) {
-  const list = customers || [];
-  if (list.length === 0) return {};
-  try {
-    const res = await window.storage.get("all-ledgers", false);
-    if (res) {
-      const parsed = JSON.parse(res.value);
-      if (parsed && typeof parsed === "object") {
-        const result = {};
-        list.forEach((c) => {
-          result[c.id] = parsed[c.id] || emptyLedger();
-        });
-        return result;
-      }
-    }
-  } catch (e) {
-    // no combined blob yet — fall back below
-  }
-  const pairs = await Promise.all(list.map(async (c) => [c.id, await fetchLedgerFor(c.id)]));
+  const pairs = await Promise.all(
+    (customers || []).map(async (c) => [c.id, await fetchLedgerFor(c.id)])
+  );
   return Object.fromEntries(pairs);
 }
 
@@ -147,13 +131,6 @@ function ClientsTab() {
   const [editingCategoryId, setEditingCategoryId] = useState(null);
   const [categoryDraftName, setCategoryDraftName] = useState("");
   const [categoryEditError, setCategoryEditError] = useState("");
-  // Mirrors `ledgers` synchronously so saveLedger can write a fresh combined
-  // blob without depending on a possibly-stale closure over `ledgers`.
-  const ledgersRef = useRef({});
-  const allLedgersLoadedRef = useRef(false);
-  useEffect(() => {
-    ledgersRef.current = ledgers;
-  }, [ledgers]);
 
   useEffect(() => {
     (async () => {
@@ -168,23 +145,6 @@ function ClientsTab() {
         setCategories(res ? JSON.parse(res.value) : []);
       } catch (e) {
         setCategories([]);
-      }
-      // One request for every client's ledger, instead of one request per
-      // client. If this key doesn't exist yet, the per-client fallback
-      // effect below loads everyone individually and then writes this key
-      // so every subsequent load (including this one, next time) is fast.
-      try {
-        const res = await window.storage.get("all-ledgers", false);
-        if (res) {
-          const parsed = JSON.parse(res.value);
-          if (parsed && typeof parsed === "object") {
-            setLedgers(parsed);
-            ledgersRef.current = parsed;
-            allLedgersLoadedRef.current = true;
-          }
-        }
-      } catch (e) {
-        // no combined blob yet — per-client fallback effect will build one
       }
       setLoading(false);
     })();
@@ -222,19 +182,11 @@ function ClientsTab() {
   }, [ledgers]);
 
   const saveLedger = useCallback(async (customerId, data) => {
-    const next = { ...ledgersRef.current, [customerId]: data };
-    ledgersRef.current = next;
-    setLedgers(next);
+    setLedgers((prev) => ({ ...prev, [customerId]: data }));
     try {
       await window.storage.set("ledger:" + customerId, JSON.stringify(data), false);
     } catch (e) {
       console.error("save ledger failed", e);
-    }
-    try {
-      await window.storage.set("all-ledgers", JSON.stringify(next), false);
-      allLedgersLoadedRef.current = true;
-    } catch (e) {
-      console.error("save all-ledgers failed", e);
     }
   }, []);
 
@@ -458,24 +410,8 @@ function ClientsTab() {
     const restoredLedgers = parsed.ledgers && typeof parsed.ledgers === "object" ? parsed.ledgers : {};
     await saveCustomers(restoredCustomers);
     await saveCategories(restoredCategories);
-    const normalized = {};
     for (const id of Object.keys(restoredLedgers)) {
-      normalized[id] = { ...emptyLedger(), ...restoredLedgers[id] };
-    }
-    ledgersRef.current = normalized;
-    setLedgers(normalized);
-    for (const [id, data] of Object.entries(normalized)) {
-      try {
-        await window.storage.set("ledger:" + id, JSON.stringify(data), false);
-      } catch (e) {
-        console.error("restore ledger failed", id, e);
-      }
-    }
-    try {
-      await window.storage.set("all-ledgers", JSON.stringify(normalized), false);
-      allLedgersLoadedRef.current = true;
-    } catch (e) {
-      console.error("restore all-ledgers failed", e);
+      await saveLedger(id, { ...emptyLedger(), ...restoredLedgers[id] });
     }
   }
 
@@ -538,7 +474,6 @@ function ClientsTab() {
   }, [loading, customers]);
 
   useEffect(() => {
-    if (allLedgersLoadedRef.current) return; // combined blob already covers everyone
     if (customers && customers.length && screen === "list") {
       customers.forEach((c) => {
         if (!ledgers[c.id]) loadLedger(c.id);
@@ -546,22 +481,6 @@ function ClientsTab() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customers, screen]);
-
-  // One-time migration: once every client has been loaded individually
-  // (the fallback path above, only used the first time this device has no
-  // combined blob yet), persist them all under one key so every future
-  // load — including Backup and the Review screens — is a single request.
-  useEffect(() => {
-    if (allLedgersLoadedRef.current) return;
-    if (!customers || customers.length === 0) return;
-    const allLoaded = customers.every((c) => ledgers[c.id]);
-    if (!allLoaded) return;
-    allLedgersLoadedRef.current = true;
-    window.storage.set("all-ledgers", JSON.stringify(ledgers), false).catch((e) => {
-      console.error("build all-ledgers failed", e);
-      allLedgersLoadedRef.current = false;
-    });
-  }, [customers, ledgers]);
 
   const fontLink = (
     <link
@@ -1462,7 +1381,7 @@ function DetailScreen({
       )}
 
       {tab === "review" && (
-        <ReviewSection goldEntries={ledger.gold} wageEntries={ledger.wages} />
+        <ReviewTabContent goldEntries={ledger.gold} wageEntries={ledger.wages} />
       )}
 
       {tab === "prices" && (
@@ -1699,6 +1618,112 @@ function BalanceCard({ label, value, tone }) {
       <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, fontWeight: 600, color }}>{value}</div>
       <div style={{ fontSize: 11, color: "#8B7355", marginTop: 2 }}>
         {tone > 0 ? "owed to you" : tone < 0 ? "owed to client" : "settled"}
+      </div>
+    </div>
+  );
+}
+
+function CustomStatCard({ label, value, color }) {
+  return (
+    <div
+      style={{
+        flex: 1,
+        background: "#232019",
+        border: "1px solid #3A3527",
+        borderRadius: 12,
+        padding: "0.85rem",
+        textAlign: "center",
+      }}
+    >
+      <div style={{ fontSize: 12, color: "#8B7355", marginBottom: 4 }}>{label}</div>
+      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, fontWeight: 600, color }}>{value}</div>
+    </div>
+  );
+}
+
+const bigActivityBtn = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: "100%",
+  padding: "1.1rem",
+  fontFamily: "'Fraunces', serif",
+  fontSize: 17,
+  fontWeight: 600,
+  color: "#F3EEE3",
+  background: "#232019",
+  border: "1px solid #3A3527",
+  borderRadius: 12,
+  cursor: "pointer",
+};
+
+function ReviewTabContent({ goldEntries, wageEntries }) {
+  const [view, setView] = useState(null); // null | "activity" | "custom"
+
+  if (!view) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <button onClick={() => setView("activity")} style={bigActivityBtn}>
+          Activity
+        </button>
+        <button onClick={() => setView("custom")} style={bigActivityBtn}>
+          Custom Activity
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <button onClick={() => setView(null)} style={backBtn}>
+        Back
+      </button>
+      {view === "activity" && <ReviewSection goldEntries={goldEntries} wageEntries={wageEntries} />}
+      {view === "custom" && <CustomActivitySection goldEntries={goldEntries} wageEntries={wageEntries} />}
+    </div>
+  );
+}
+
+function CustomActivitySection({ goldEntries, wageEntries }) {
+  const [fromDate, setFromDate] = useState(todayStr());
+  const [toDate, setToDate] = useState(todayStr());
+
+  function totalsFor(entries) {
+    const inRange = (entries || []).filter((e) => e.date && e.date >= fromDate && e.date <= toDate);
+    const taken = inRange.filter((e) => e.amount > 0).reduce((s, e) => s + e.amount, 0);
+    const paid = inRange.filter((e) => e.amount < 0).reduce((s, e) => s + Math.abs(e.amount), 0);
+    return { taken, paid };
+  }
+
+  const goldTotals = totalsFor(goldEntries);
+  const wageTotals = totalsFor(wageEntries);
+
+  return (
+    <div>
+      <div style={{ fontSize: 13, color: "#8B7355", marginBottom: 14 }}>
+        Pick a date range to see how much gold and wages were taken and paid back in that period.
+      </div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 11, color: "#8B7355", marginBottom: 4 }}>From</div>
+          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={inputStyle} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 11, color: "#8B7355", marginBottom: 4 }}>To</div>
+          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={inputStyle} />
+        </div>
+      </div>
+
+      <div style={{ fontSize: 15, fontWeight: 500, color: "#F3EEE3", marginBottom: 8 }}>Gold</div>
+      <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+        <CustomStatCard label="Taken" value={grams(goldTotals.taken)} color="#D4756B" />
+        <CustomStatCard label="Paid back" value={grams(goldTotals.paid)} color="#7FAE7A" />
+      </div>
+
+      <div style={{ fontSize: 15, fontWeight: 500, color: "#F3EEE3", marginBottom: 8 }}>Wages</div>
+      <div style={{ display: "flex", gap: 10 }}>
+        <CustomStatCard label="Taken" value={money(wageTotals.taken)} color="#D4756B" />
+        <CustomStatCard label="Paid back" value={money(wageTotals.paid)} color="#7FAE7A" />
       </div>
     </div>
   );
