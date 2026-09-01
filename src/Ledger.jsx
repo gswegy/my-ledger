@@ -2186,15 +2186,38 @@ function PlaceholderTab({ title }) {
 }
 
 function ReceiptsTab() {
-  const [view, setView] = useState(null); // null | "create"
+  const [view, setView] = useState(null); // null | "create" | "view-list"
+  const [openReceiptId, setOpenReceiptId] = useState(null);
 
   if (view === "create") {
+    return (
+      <div>
+        <button
+          onClick={() => {
+            setView(null);
+            setOpenReceiptId(null);
+          }}
+          style={backBtn}
+        >
+          &larr; Receipts
+        </button>
+        <CreateReceiptScreen receiptId={openReceiptId} />
+      </div>
+    );
+  }
+
+  if (view === "view-list") {
     return (
       <div>
         <button onClick={() => setView(null)} style={backBtn}>
           &larr; Receipts
         </button>
-        <CreateReceiptScreen />
+        <ViewReceiptsScreen
+          onOpenReceipt={(id) => {
+            setOpenReceiptId(id);
+            setView("create");
+          }}
+        />
       </div>
     );
   }
@@ -2205,10 +2228,99 @@ function ReceiptsTab() {
         Receipts
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <button onClick={() => setView("create")} style={bigHomeBtn}>
+        <button
+          onClick={() => {
+            setOpenReceiptId(null);
+            setView("create");
+          }}
+          style={bigHomeBtn}
+        >
           Create Receipt
         </button>
+        <button onClick={() => setView("view-list")} style={bigHomeBtn}>
+          View Receipts
+        </button>
       </div>
+    </div>
+  );
+}
+
+// Lists every saved statement/receipt, newest first (by date, then by
+// statement number as a tiebreaker), pulled from the "receipts-list" index.
+function ViewReceiptsScreen({ onOpenReceipt }) {
+  const [loading, setLoading] = useState(true);
+  const [receipts, setReceipts] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let list = [];
+      try {
+        const res = await window.storage.get("receipts-list", false);
+        list = res ? JSON.parse(res.value) : [];
+      } catch (e) {
+        list = [];
+      }
+      const sorted = [...list].sort((a, b) => {
+        const dateCmp = (b.date || "").localeCompare(a.date || "");
+        if (dateCmp !== 0) return dateCmp;
+        return (b.statementNo || "").localeCompare(a.statementNo || "", undefined, { numeric: true });
+      });
+      if (!cancelled) {
+        setReceipts(sorted);
+        setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (loading) {
+    return <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "2rem 0" }}>Loading…</div>;
+  }
+
+  return (
+    <div style={{ fontFamily: "'Inter', sans-serif" }}>
+      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 600, color: "#F3EEE3", marginBottom: 16 }}>
+        Saved Receipts
+      </div>
+      {receipts.length === 0 ? (
+        <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "2rem 0" }}>
+          No receipts saved yet.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {receipts.map((r) => (
+            <button
+              key={r.id}
+              onClick={() => onOpenReceipt(r.id)}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                width: "100%",
+                textAlign: "left",
+                background: "#232019",
+                border: "1px solid #3A3527",
+                borderRadius: 12,
+                padding: "0.85rem 1rem",
+                cursor: "pointer",
+              }}
+            >
+              <div>
+                <div style={{ fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 600, color: "#F3EEE3" }}>
+                  {r.clientName || "Unnamed client"}
+                </div>
+                <div style={{ fontSize: 12, color: "#8B7355", marginTop: 2 }}>
+                  No. {r.statementNo || "—"} · {r.date || "no date"}
+                </div>
+              </div>
+              <div style={{ fontSize: 12, color: "#8B7355" }}>&rarr;</div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -2216,7 +2328,8 @@ function ReceiptsTab() {
 const emptyItemRow = () => ({ id: uid(), category: "", price: "", labor: "", gram: "" });
 const emptyPaymentRow = () => ({ id: uid(), method: "", amount: "", note: "" });
 
-function CreateReceiptScreen() {
+function CreateReceiptScreen({ receiptId }) {
+  const [loadedId, setLoadedId] = useState(null); // id of the receipt currently loaded, if editing a saved one
   const [statementNo, setStatementNo] = useState("11872");
   const [day, setDay] = useState(() => todayStr().slice(8, 10));
   const [month, setMonth] = useState(() => todayStr().slice(5, 7));
@@ -2229,6 +2342,8 @@ function CreateReceiptScreen() {
   const [items, setItems] = useState(() => Array.from({ length: 1 }, emptyItemRow));
   const [payments, setPayments] = useState(() => Array.from({ length: 1 }, emptyPaymentRow));
   const [discount, setDiscount] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -2246,6 +2361,31 @@ function CreateReceiptScreen() {
       }
     })();
   }, []);
+
+  // If opened from "View Receipts", load that saved statement's data in.
+  useEffect(() => {
+    if (!receiptId) return;
+    (async () => {
+      try {
+        const res = await window.storage.get("receipt:" + receiptId, false);
+        if (res) {
+          const data = JSON.parse(res.value);
+          setLoadedId(receiptId);
+          setStatementNo(data.statementNo || "");
+          setDay(data.day || todayStr().slice(8, 10));
+          setMonth(data.month || todayStr().slice(5, 7));
+          setYear(data.year || todayStr().slice(0, 4));
+          setNote(data.note || "");
+          setClientName(data.clientName || "");
+          setItems(data.items && data.items.length ? data.items : Array.from({ length: 1 }, emptyItemRow));
+          setPayments(data.payments && data.payments.length ? data.payments : Array.from({ length: 1 }, emptyPaymentRow));
+          setDiscount(data.discount || "");
+        }
+      } catch (e) {
+        setSaveMessage("Couldn't load that receipt");
+      }
+    })();
+  }, [receiptId]);
 
   const filteredCustomers = clientName.trim()
     ? customers.filter((c) => c.name.toLowerCase().includes(clientName.trim().toLowerCase()))
@@ -2288,6 +2428,53 @@ function CreateReceiptScreen() {
   function clearPayments() {
     if (window.confirm("Clear all payment rows?")) {
       setPayments(Array.from({ length: 1 }, emptyPaymentRow));
+    }
+  }
+
+  // Saves the statement to Supabase under "receipt:<id>", and keeps a
+  // lightweight index in "receipts-list" so the View Receipts screen can
+  // list every saved statement without fetching each one individually.
+  async function saveStatement() {
+    setSaving(true);
+    setSaveMessage("");
+    try {
+      const id = loadedId || uid();
+      const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      const data = {
+        id,
+        statementNo,
+        day,
+        month,
+        year,
+        date: dateStr,
+        note,
+        clientName,
+        items,
+        payments,
+        discount,
+        savedAt: new Date().toISOString(),
+      };
+
+      await window.storage.set("receipt:" + id, JSON.stringify(data), false);
+
+      let list = [];
+      try {
+        const res = await window.storage.get("receipts-list", false);
+        list = res ? JSON.parse(res.value) : [];
+      } catch (e) {
+        list = [];
+      }
+      const withoutThis = list.filter((r) => r.id !== id);
+      const indexEntry = { id, statementNo, clientName, date: dateStr, savedAt: data.savedAt };
+      await window.storage.set("receipts-list", JSON.stringify([indexEntry, ...withoutThis]), false);
+
+      setLoadedId(id);
+      setSaveMessage("Saved");
+    } catch (e) {
+      setSaveMessage("Save failed");
+    } finally {
+      setSaving(false);
+      setTimeout(() => setSaveMessage(""), 2500);
     }
   }
 
@@ -2589,7 +2776,17 @@ function CreateReceiptScreen() {
               <button className="rbtn" onClick={addPaymentRow}>+ Add row</button>
               <button className="rbtn ghost" onClick={clearPayments} style={{ marginLeft: 8 }}>Clear</button>
             </div>
-            <button className="rbtn ghost" onClick={() => window.print()}>Print</button>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              {saveMessage ? (
+                <span style={{ fontSize: 11, color: saveMessage === "Saved" ? "#7FAE7A" : "#D4756B" }}>
+                  {saveMessage}
+                </span>
+              ) : null}
+              <button className="rbtn" onClick={saveStatement} disabled={saving}>
+                {saving ? "Saving…" : loadedId ? "Update" : "Save"}
+              </button>
+              <button className="rbtn ghost" onClick={() => window.print()}>Print</button>
+            </div>
           </div>
 
           <div className="foot-note">Prices subject to the daily gold rate</div>
