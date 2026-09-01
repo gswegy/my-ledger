@@ -2320,6 +2320,7 @@ function ViewReceiptsScreen({ onOpenReceipt }) {
                 </div>
                 <div style={{ fontSize: 12, color: "#8B7355", marginTop: 2 }}>
                   No. {r.statementNo || "—"} · {r.date || "no date"}
+                  {r.note ? ` · ${r.note}` : ""}
                 </div>
               </div>
               <div style={{ fontSize: 12, color: "#8B7355" }}>&rarr;</div>
@@ -2524,7 +2525,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
         list = [];
       }
       const withoutThis = list.filter((r) => r.id !== id);
-      const indexEntry = { id, statementNo, clientName, date: dateStr, savedAt: data.savedAt };
+      const indexEntry = { id, statementNo, clientName, date: dateStr, note, savedAt: data.savedAt };
       await window.storage.set("receipts-list", JSON.stringify([indexEntry, ...withoutThis]), false);
 
       setLoadedId(id);
@@ -2697,6 +2698,8 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
           .receipt-sheet .title-block h1{ font-size:22px; }
           .receipt-sheet thead th{ font-size:9px; padding:6px 2px; }
           .receipt-sheet tbody td input, .receipt-sheet tfoot td{ font-size:11.5px; }
+          .receipt-sheet tfoot td{ padding:7px 3px; }
+          .receipt-sheet tfoot input{ font-size:11px; letter-spacing:-.02em; }
         }
       `}</style>
 
@@ -2728,7 +2731,9 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
               <input placeholder="MM" style={{ width: 34 }} value={month} onChange={(e) => setMonth(toEnglishDigits(e.target.value))} />
               <span className="sep">/</span>
               <input placeholder="YYYY" style={{ width: 56 }} value={year} onChange={(e) => setYear(toEnglishDigits(e.target.value))} />
-              <label style={{ marginLeft: 18 }}>Note:</label>
+            </div>
+            <div className="meta-row">
+              <label>Note:</label>
               <input value={note} onChange={(e) => setNote(e.target.value)} />
             </div>
             <div className="meta-row">
@@ -2771,11 +2776,11 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
           <table>
             <thead>
               <tr>
-                <th className="col-item" style={{ width: "30%" }}>Category</th>
+                <th className="col-item" style={{ width: "27%" }}>Category</th>
                 <th style={{ width: "19%" }}>Price</th>
-                <th style={{ width: "19%" }}>Labor</th>
-                <th style={{ width: "19%" }}>Gram</th>
-                <th style={{ width: "13%" }}></th>
+                <th style={{ width: "22%" }}>Labor</th>
+                <th style={{ width: "22%" }}>Gram</th>
+                <th style={{ width: "10%" }}></th>
               </tr>
             </thead>
             <tbody>
@@ -2854,11 +2859,11 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
           <table>
             <thead>
               <tr>
-                <th className="col-item" style={{ width: "22%" }}>Method</th>
+                <th className="col-item" style={{ width: "20%" }}>Method</th>
                 <th style={{ width: "17%" }}>Labor</th>
                 <th style={{ width: "26%" }}>21k Gold</th>
-                <th style={{ width: "23%" }}>Notes</th>
-                <th style={{ width: "12%" }}></th>
+                <th style={{ width: "27%" }}>Notes</th>
+                <th style={{ width: "10%" }}></th>
               </tr>
             </thead>
             <tbody>
