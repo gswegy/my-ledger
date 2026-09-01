@@ -2185,6 +2185,309 @@ function PlaceholderTab({ title }) {
   );
 }
 
+function ReceiptsTab() {
+  const [view, setView] = useState(null); // null | "create"
+
+  if (view === "create") {
+    return (
+      <div>
+        <button onClick={() => setView(null)} style={backBtn}>
+          &larr; Receipts
+        </button>
+        <CreateReceiptScreen />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ fontFamily: "'Inter', sans-serif" }}>
+      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 600, color: "#F3EEE3", marginBottom: 16 }}>
+        Receipts
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <button onClick={() => setView("create")} style={bigHomeBtn}>
+          Create Receipt
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const emptyItemRow = () => ({ id: uid(), category: "", price: "", labor: "", gram: "" });
+const emptyPaymentRow = () => ({ id: uid(), method: "", amount: "", note: "" });
+
+function CreateReceiptScreen() {
+  const [statementNo, setStatementNo] = useState("11872");
+  const [day, setDay] = useState("");
+  const [month, setMonth] = useState("");
+  const [year, setYear] = useState("");
+  const [note, setNote] = useState("");
+  const [clientName, setClientName] = useState("");
+  const [items, setItems] = useState(() => Array.from({ length: 14 }, emptyItemRow));
+  const [payments, setPayments] = useState(() => Array.from({ length: 6 }, emptyPaymentRow));
+
+  const total = items.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.price)) || 0), 0);
+  const paymentTotal = payments.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.amount)) || 0), 0);
+
+  function updateItem(id, field, value) {
+    setItems((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+  }
+  function updatePayment(id, field, value) {
+    setPayments((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+  }
+  function addItemRow() {
+    setItems((prev) => [...prev, emptyItemRow()]);
+  }
+  function clearItems() {
+    if (window.confirm("Clear all rows?")) {
+      setItems(Array.from({ length: 14 }, emptyItemRow));
+    }
+  }
+  function addPaymentRow() {
+    setPayments((prev) => [...prev, emptyPaymentRow()]);
+  }
+  function clearPayments() {
+    if (window.confirm("Clear all payment rows?")) {
+      setPayments(Array.from({ length: 6 }, emptyPaymentRow));
+    }
+  }
+
+  return (
+    <div>
+      <style>{`
+        .receipt-sheet{
+          --paper:#faf7ee;
+          --paper-edge:#efe9d6;
+          --ink:#2a2419;
+          --ink-soft:#6b6250;
+          --line:#c9c0a4;
+          --gold:#a9822f;
+          --gold-deep:#7c5e22;
+          --red:#a3272c;
+          width:100%;
+          background:var(--paper);
+          border:1px solid var(--paper-edge);
+          box-shadow:0 2px 4px rgba(0,0,0,.06), 0 18px 40px rgba(30,25,10,.18);
+          position:relative;
+          font-family:'Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif;
+          color:var(--ink);
+          box-sizing:border-box;
+        }
+        .receipt-sheet *{ box-sizing:border-box; }
+        .receipt-sheet::before{
+          content:"";
+          position:absolute;
+          top:0; left:0; right:0;
+          height:14px;
+          background:repeating-linear-gradient(90deg,#e2d9b8 0 26px,#d8cca0 26px 28px);
+          opacity:.55;
+        }
+        .receipt-sheet .inner{ padding:38px 34px 30px; }
+        .receipt-sheet .head{ display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:6px; }
+        .receipt-sheet .mark{ width:84px; display:flex; flex-direction:column; align-items:flex-start; color:var(--gold-deep); padding-top:10px; }
+        .receipt-sheet .brand-name{ font-size:13px; font-weight:700; letter-spacing:.1em; line-height:1.5; color:var(--gold-deep); }
+        .receipt-sheet .title-block{ text-align:center; flex:1; }
+        .receipt-sheet .title-block h1{ margin:8px 0 2px; font-size:30px; font-weight:600; letter-spacing:.08em; color:var(--ink); }
+        .receipt-sheet .title-block .sub{ font-size:11px; color:var(--ink-soft); letter-spacing:.16em; font-style:italic; }
+        .receipt-sheet .no-block{ width:64px; text-align:right; }
+        .receipt-sheet .no-block .lbl{ font-size:9px; color:var(--ink-soft); letter-spacing:.1em; }
+        .receipt-sheet .no-input{
+          width:64px; border:none; background:transparent; color:var(--red);
+          font-family:Georgia,serif; font-size:19px; font-weight:700; text-align:right;
+          border-bottom:1px solid var(--line); padding:2px 0;
+        }
+        .receipt-sheet .no-input:focus{ outline:none; border-color:var(--gold); }
+        .receipt-sheet hr.rule{ border:none; border-top:1px solid var(--line); margin:18px 0 16px; }
+        .receipt-sheet .meta{ display:flex; flex-direction:column; gap:12px; margin-bottom:22px; }
+        .receipt-sheet .meta-row{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+        .receipt-sheet .meta-row label{ font-size:12px; color:var(--ink-soft); white-space:nowrap; letter-spacing:.03em; }
+        .receipt-sheet .meta-row input{
+          flex:1; border:none; border-bottom:1px dotted var(--gold); background:transparent;
+          font-family:inherit; font-size:14px; color:var(--ink); padding:3px 4px; min-width:60px;
+        }
+        .receipt-sheet .meta-row input:focus{ outline:none; border-bottom:1px solid var(--gold-deep); }
+        .receipt-sheet .date-row input{ width:44px; text-align:center; flex:none; }
+        .receipt-sheet .date-row .sep{ color:var(--ink-soft); }
+        .receipt-sheet table{ width:100%; border-collapse:collapse; border:1.5px solid var(--ink); }
+        .receipt-sheet thead th{
+          border:1px solid var(--ink); background:#f1ead2; font-size:11px; letter-spacing:.06em;
+          color:var(--gold-deep); font-weight:700; padding:9px 4px; text-transform:uppercase;
+        }
+        .receipt-sheet th.col-item{ text-align:left; padding-left:12px; }
+        .receipt-sheet tbody td{ border:1px solid var(--line); padding:0; height:30px; }
+        .receipt-sheet tbody td input{
+          width:100%; height:100%; border:none; background:transparent; font-family:inherit;
+          font-size:13px; color:var(--ink); padding:0 8px; text-align:center;
+        }
+        .receipt-sheet td.col-item input{ text-align:left; }
+        .receipt-sheet tbody td input:focus{ outline:none; background:#fbf6e4; }
+        .receipt-sheet tbody tr:nth-child(even) td{ background:rgba(169,130,47,.035); }
+        .receipt-sheet tfoot td{ border:1px solid var(--ink); padding:9px 8px; font-size:13px; }
+        .receipt-sheet tfoot .total-label{
+          text-align:right; font-weight:700; letter-spacing:.04em; color:var(--ink-soft);
+          font-size:11px; text-transform:uppercase;
+        }
+        .receipt-sheet tfoot input{
+          width:100%; border:none; background:transparent; font-family:inherit;
+          font-weight:700; text-align:center; color:var(--red);
+        }
+        .receipt-sheet tfoot input:focus{ outline:none; }
+        .receipt-sheet .section-divider{ border-top:2.5px solid var(--ink); margin:30px 0 20px; }
+        .receipt-sheet .section-title{
+          margin:0 0 12px; font-size:15px; font-weight:700; letter-spacing:.1em;
+          color:var(--gold-deep); text-transform:uppercase;
+        }
+        .receipt-sheet .controls{ display:flex; justify-content:space-between; align-items:center; margin-top:16px; flex-wrap:wrap; gap:8px; }
+        .receipt-sheet .rbtn{
+          font-family:inherit; font-size:12px; letter-spacing:.04em; padding:7px 14px;
+          border:1px solid var(--gold-deep); background:transparent; color:var(--gold-deep);
+          cursor:pointer; border-radius:2px;
+        }
+        .receipt-sheet .rbtn:hover{ background:var(--gold-deep); color:var(--paper); }
+        .receipt-sheet .rbtn.ghost{ border-color:var(--line); color:var(--ink-soft); }
+        .receipt-sheet .rbtn.ghost:hover{ background:var(--ink-soft); color:var(--paper); border-color:var(--ink-soft); }
+        .receipt-sheet .foot-note{ margin-top:26px; text-align:center; font-size:10.5px; color:var(--ink-soft); font-style:italic; letter-spacing:.03em; }
+        @media print{
+          .receipt-sheet{ box-shadow:none; border:none; max-width:none; }
+          .receipt-sheet .controls{ display:none; }
+        }
+        @media (max-width:480px){
+          .receipt-sheet .inner{ padding:24px 16px 18px; }
+          .receipt-sheet .title-block h1{ font-size:22px; }
+          .receipt-sheet thead th{ font-size:9px; padding:6px 2px; }
+          .receipt-sheet tbody td input, .receipt-sheet tfoot td{ font-size:11.5px; }
+        }
+      `}</style>
+
+      <div className="receipt-sheet">
+        <div className="inner">
+          <div className="head">
+            <div className="mark">
+              <span className="brand-name">MODERN<br />GOLD</span>
+            </div>
+
+            <div className="title-block">
+              <h1>Statement</h1>
+              <div className="sub">order details</div>
+            </div>
+
+            <div className="no-block">
+              <div className="lbl">NO.</div>
+              <input className="no-input" value={statementNo} onChange={(e) => setStatementNo(e.target.value)} />
+            </div>
+          </div>
+
+          <hr className="rule" />
+
+          <div className="meta">
+            <div className="meta-row date-row">
+              <label>Date:</label>
+              <input placeholder="DD" style={{ width: 34 }} value={day} onChange={(e) => setDay(e.target.value)} />
+              <span className="sep">/</span>
+              <input placeholder="MM" style={{ width: 34 }} value={month} onChange={(e) => setMonth(e.target.value)} />
+              <span className="sep">/</span>
+              <input placeholder="YYYY" style={{ width: 56 }} value={year} onChange={(e) => setYear(e.target.value)} />
+              <label style={{ marginLeft: 18 }}>Note:</label>
+              <input value={note} onChange={(e) => setNote(e.target.value)} />
+            </div>
+            <div className="meta-row">
+              <label>Requested from Mr.:</label>
+              <input placeholder="Client name" value={clientName} onChange={(e) => setClientName(e.target.value)} />
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th className="col-item" style={{ width: "34%" }}>Category</th>
+                <th style={{ width: "22%" }}>Price</th>
+                <th style={{ width: "22%" }}>Labor</th>
+                <th style={{ width: "22%" }}>Gram</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((row) => (
+                <tr key={row.id}>
+                  <td className="col-item">
+                    <input type="text" value={row.category} onChange={(e) => updateItem(row.id, "category", e.target.value)} />
+                  </td>
+                  <td>
+                    <input type="text" value={row.price} onChange={(e) => updateItem(row.id, "price", e.target.value)} />
+                  </td>
+                  <td>
+                    <input type="text" value={row.labor} onChange={(e) => updateItem(row.id, "labor", e.target.value)} />
+                  </td>
+                  <td>
+                    <input type="text" value={row.gram} onChange={(e) => updateItem(row.id, "gram", e.target.value)} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td><input value={total.toFixed(2)} readOnly /></td>
+                <td colSpan={3} className="total-label">Total</td>
+              </tr>
+            </tfoot>
+          </table>
+
+          <div className="controls">
+            <div>
+              <button className="rbtn" onClick={addItemRow}>+ Add row</button>
+              <button className="rbtn ghost" onClick={clearItems} style={{ marginLeft: 8 }}>Clear</button>
+            </div>
+          </div>
+
+          <div className="section-divider"></div>
+
+          <h2 className="section-title">Payments</h2>
+
+          <table>
+            <thead>
+              <tr>
+                <th style={{ width: "34%" }}>Method</th>
+                <th style={{ width: "33%" }}>Amount</th>
+                <th style={{ width: "33%" }}>Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {payments.map((row) => (
+                <tr key={row.id}>
+                  <td>
+                    <input type="text" value={row.method} onChange={(e) => updatePayment(row.id, "method", e.target.value)} />
+                  </td>
+                  <td>
+                    <input type="text" value={row.amount} onChange={(e) => updatePayment(row.id, "amount", e.target.value)} />
+                  </td>
+                  <td>
+                    <input type="text" value={row.note} onChange={(e) => updatePayment(row.id, "note", e.target.value)} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td><input value={paymentTotal.toFixed(2)} readOnly /></td>
+                <td colSpan={2} className="total-label">Total Paid</td>
+              </tr>
+            </tfoot>
+          </table>
+
+          <div className="controls">
+            <div>
+              <button className="rbtn" onClick={addPaymentRow}>+ Add row</button>
+              <button className="rbtn ghost" onClick={clearPayments} style={{ marginLeft: 8 }}>Clear</button>
+            </div>
+            <button className="rbtn ghost" onClick={() => window.print()}>Print</button>
+          </div>
+
+          <div className="foot-note">Prices subject to the daily gold rate</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ReviewsTab() {
   const [view, setView] = useState(null); // null | "assets-liabilities" | "sales"
 
@@ -2493,7 +2796,7 @@ export default function Ledger() {
         Home
       </button>
       {homeTab === "clients" && <ClientsTab />}
-      {homeTab === "receipts" && <PlaceholderTab title="Receipts" />}
+      {homeTab === "receipts" && <ReceiptsTab />}
       {homeTab === "reviews" && <ReviewsTab />}
     </div>
   );
