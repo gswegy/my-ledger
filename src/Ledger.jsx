@@ -2217,17 +2217,18 @@ const emptyItemRow = () => ({ id: uid(), category: "", price: "", labor: "", gra
 const emptyPaymentRow = () => ({ id: uid(), method: "", amount: "", note: "" });
 
 function CreateReceiptScreen() {
-  const todayParts = todayStr().split("-"); // [YYYY, MM, DD]
   const [statementNo, setStatementNo] = useState("11872");
-  const [day, setDay] = useState(todayParts[2]);
-  const [month, setMonth] = useState(todayParts[1]);
-  const [year, setYear] = useState(todayParts[0]);
+  const [day, setDay] = useState("");
+  const [month, setMonth] = useState("");
+  const [year, setYear] = useState("");
   const [note, setNote] = useState("");
   const [clientName, setClientName] = useState("");
   const [showClientDropdown, setShowClientDropdown] = useState(false);
   const [customers, setCustomers] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [items, setItems] = useState(() => Array.from({ length: 1 }, emptyItemRow));
-  const [payments, setPayments] = useState(() => Array.from({ length: 1 }, emptyPaymentRow));
+  const [payments, setPayments] = useState(() => Array.from({ length: 6 }, emptyPaymentRow));
+  const [discount, setDiscount] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -2237,31 +2238,27 @@ function CreateReceiptScreen() {
       } catch (e) {
         setCustomers([]);
       }
+      try {
+        const res = await window.storage.get("categories-list", false);
+        setCategories(res ? JSON.parse(res.value) : []);
+      } catch (e) {
+        setCategories([]);
+      }
     })();
   }, []);
 
-  const filteredClients = (clientName.trim()
-    ? customers.filter((c) => (c.name || "").toLowerCase().includes(clientName.trim().toLowerCase()))
-    : customers
-  ).slice(0, 8);
+  const filteredCustomers = clientName.trim()
+    ? customers.filter((c) => c.name.toLowerCase().includes(clientName.trim().toLowerCase()))
+    : customers;
 
   const totalGold = items.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.gram)) || 0), 0);
   const totalLabor = items.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.labor)) || 0), 0);
+  const discountAmount = parseFloat(toEnglishDigits(discount)) || 0;
+  const netLabor = totalLabor - discountAmount;
   const paymentTotal = payments.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.amount)) || 0), 0);
 
   function updateItem(id, field, value) {
-    setItems((prev) =>
-      prev.map((r) => {
-        if (r.id !== id) return r;
-        const updated = { ...r, [field]: value };
-        if (field === "price" || field === "gram") {
-          const p = parseFloat(toEnglishDigits(field === "price" ? value : updated.price)) || 0;
-          const g = parseFloat(toEnglishDigits(field === "gram" ? value : updated.gram)) || 0;
-          updated.labor = p && g ? (p * g).toFixed(2) : updated.labor;
-        }
-        return updated;
-      })
-    );
+    setItems((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
   }
   function updatePayment(id, field, value) {
     setPayments((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
@@ -2279,7 +2276,7 @@ function CreateReceiptScreen() {
   }
   function clearPayments() {
     if (window.confirm("Clear all payment rows?")) {
-      setPayments(Array.from({ length: 1 }, emptyPaymentRow));
+      setPayments(Array.from({ length: 6 }, emptyPaymentRow));
     }
   }
 
@@ -2340,18 +2337,24 @@ function CreateReceiptScreen() {
         .receipt-sheet .meta-row input:focus, .receipt-sheet .meta-row select:focus{ outline:none; border-bottom:1px solid var(--gold-deep); }
         .receipt-sheet .date-row input{ width:44px; text-align:center; flex:none; }
         .receipt-sheet .date-row .sep{ color:var(--ink-soft); }
-        .receipt-sheet .note-row input{ min-width:220px; }
-        .receipt-sheet .client-search{ position:relative; flex:1; min-width:180px; }
-        .receipt-sheet .client-search input{ width:100%; }
+        .receipt-sheet .client-field{ position:relative; flex:1; min-width:160px; }
+        .receipt-sheet .client-field input{ width:100%; }
         .receipt-sheet .client-dropdown{
-          position:absolute; top:100%; left:0; right:0; margin-top:4px; z-index:10;
-          background:var(--paper); border:1px solid var(--line); border-radius:4px;
-          box-shadow:0 6px 16px rgba(30,25,10,.18); max-height:180px; overflow-y:auto;
+          position:absolute; top:100%; left:0; right:0; z-index:20;
+          background:var(--paper, #fbf6e4); border:1px solid var(--line); border-top:none;
+          max-height:260px; overflow-y:auto; box-shadow:0 6px 14px rgba(0,0,0,.12);
         }
         .receipt-sheet .client-dropdown-item{
-          padding:8px 10px; font-size:13px; color:var(--ink); cursor:pointer;
+          padding:8px 10px; font-size:14px; color:var(--ink); cursor:pointer; text-align:right;
         }
-        .receipt-sheet .client-dropdown-item:hover{ background:#f1ead2; }
+        .receipt-sheet .client-dropdown-item:hover, .receipt-sheet .client-dropdown-item:active{
+          background:rgba(169,130,47,.12);
+        }
+        .receipt-sheet td select{
+          width:100%; height:100%; border:none; background:transparent; font-family:inherit;
+          font-size:13px; color:var(--ink); padding:0 6px; appearance:none; -webkit-appearance:none; cursor:pointer;
+        }
+        .receipt-sheet td select:focus{ outline:none; background:#fbf6e4; }
         .receipt-sheet table{ width:100%; border-collapse:collapse; border:1.5px solid var(--ink); }
         .receipt-sheet thead th{
           border:1px solid var(--ink); background:#f1ead2; font-size:11px; letter-spacing:.06em;
@@ -2431,17 +2434,16 @@ function CreateReceiptScreen() {
               <input placeholder="MM" style={{ width: 34 }} value={month} onChange={(e) => setMonth(e.target.value)} />
               <span className="sep">/</span>
               <input placeholder="YYYY" style={{ width: 56 }} value={year} onChange={(e) => setYear(e.target.value)} />
-            </div>
-            <div className="meta-row note-row">
-              <label>Note:</label>
+              <label style={{ marginLeft: 18 }}>Note:</label>
               <input value={note} onChange={(e) => setNote(e.target.value)} />
             </div>
             <div className="meta-row">
               <label>Requested from Mr.:</label>
-              <div className="client-search">
+              <div className="client-field">
                 <input
-                  placeholder="Search client name…"
+                  type="text"
                   value={clientName}
+                  placeholder="Search client name…"
                   onChange={(e) => {
                     setClientName(e.target.value);
                     setShowClientDropdown(true);
@@ -2449,13 +2451,14 @@ function CreateReceiptScreen() {
                   onFocus={() => setShowClientDropdown(true)}
                   onBlur={() => setTimeout(() => setShowClientDropdown(false), 150)}
                 />
-                {showClientDropdown && filteredClients.length > 0 && (
+                {showClientDropdown && filteredCustomers.length > 0 && (
                   <div className="client-dropdown">
-                    {filteredClients.map((c) => (
+                    {filteredCustomers.map((c) => (
                       <div
                         key={c.id}
                         className="client-dropdown-item"
-                        onMouseDown={() => {
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
                           setClientName(c.name);
                           setShowClientDropdown(false);
                         }}
@@ -2482,7 +2485,12 @@ function CreateReceiptScreen() {
               {items.map((row) => (
                 <tr key={row.id}>
                   <td className="col-item">
-                    <input type="text" value={row.category} onChange={(e) => updateItem(row.id, "category", e.target.value)} />
+                    <select value={row.category} onChange={(e) => updateItem(row.id, "category", e.target.value)}>
+                      <option value="">Select category…</option>
+                      {categories.map((c) => (
+                        <option key={c.id} value={c.name}>{c.name}</option>
+                      ))}
+                    </select>
                   </td>
                   <td>
                     <input type="text" value={row.price} onChange={(e) => updateItem(row.id, "price", e.target.value)} />
@@ -2499,8 +2507,20 @@ function CreateReceiptScreen() {
             <tfoot>
               <tr>
                 <td colSpan={2} className="total-label">Totals</td>
-                <td><input value={totalLabor.toFixed(2)} readOnly /></td>
+                <td><input value={netLabor.toFixed(2)} readOnly /></td>
                 <td><input value={totalGold.toFixed(2)} readOnly /></td>
+              </tr>
+              <tr>
+                <td colSpan={2} className="total-label">Discount</td>
+                <td>
+                  <input
+                    type="text"
+                    value={discount}
+                    onChange={(e) => setDiscount(e.target.value)}
+                    placeholder="0"
+                  />
+                </td>
+                <td></td>
               </tr>
             </tfoot>
           </table>
