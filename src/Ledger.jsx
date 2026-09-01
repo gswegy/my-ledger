@@ -2332,7 +2332,17 @@ function ViewReceiptsScreen({ onOpenReceipt }) {
 }
 
 const emptyItemRow = () => ({ id: uid(), category: "", price: "", labor: "", gram: "" });
-const emptyPaymentRow = () => ({ id: uid(), method: "", labor: "", gold21k: "", barWeight: "", barKarat: "" });
+const emptyPaymentRow = () => ({
+  id: uid(),
+  method: "",
+  labor: "",
+  gold21k: "",
+  barWeight: "",
+  barKarat: "",
+  moneyAmount: "",
+  goldPrice: "",
+  note: "",
+});
 
 // 21k gold is 875 parts per 1000 pure. Converting a bar of a different
 // purity into its 21k-equivalent weight: equivalent = weight * karat / 875.
@@ -2343,6 +2353,15 @@ function computeBarGold21k(weight, karat) {
   const k = parseFloat(toEnglishDigits(karat)) || 0;
   if (!w || !k) return "";
   return String(Math.round((w * k / KARAT_21K) * 100) / 100);
+}
+
+// Converts a cash amount into its 21k-gold equivalent at a given gold price
+// (price = money per gram of 21k gold). e.g. 120000 / 6340 = 18.93g.
+function computeMoneyGold21k(moneyAmount, goldPrice) {
+  const m = parseFloat(toEnglishDigits(moneyAmount)) || 0;
+  const p = parseFloat(toEnglishDigits(goldPrice)) || 0;
+  if (!m || !p) return "";
+  return String(Math.round((m / p) * 100) / 100);
 }
 
 function CreateReceiptScreen({ receiptId, onDeleted }) {
@@ -2417,10 +2436,11 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
   const totalPaymentGold21k = payments.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.gold21k)) || 0), 0);
 
   function updateItem(id, field, value) {
+    const v = field === "price" || field === "labor" || field === "gram" ? toEnglishDigits(value) : value;
     setItems((prev) =>
       prev.map((r) => {
         if (r.id !== id) return r;
-        const next = { ...r, [field]: value };
+        const next = { ...r, [field]: v };
         if (field === "gram" || field === "price") {
           const g = parseFloat(toEnglishDigits(next.gram)) || 0;
           const p = parseFloat(toEnglishDigits(next.price)) || 0;
@@ -2430,13 +2450,18 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
       })
     );
   }
+  const paymentNumericFields = ["labor", "gold21k", "barWeight", "barKarat", "moneyAmount", "goldPrice"];
   function updatePayment(id, field, value) {
+    const v = paymentNumericFields.includes(field) ? toEnglishDigits(value) : value;
     setPayments((prev) =>
       prev.map((r) => {
         if (r.id !== id) return r;
-        const next = { ...r, [field]: value };
+        const next = { ...r, [field]: v };
         if (field === "barWeight" || field === "barKarat") {
           next.gold21k = computeBarGold21k(next.barWeight, next.barKarat);
+        }
+        if (field === "moneyAmount" || field === "goldPrice") {
+          next.gold21k = computeMoneyGold21k(next.moneyAmount, next.goldPrice);
         }
         return next;
       })
@@ -2452,6 +2477,9 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
   }
   function addPaymentRow() {
     setPayments((prev) => [...prev, emptyPaymentRow()]);
+  }
+  function removePaymentRow(id) {
+    setPayments((prev) => prev.filter((r) => r.id !== id));
   }
   function clearPayments() {
     if (window.confirm("Clear all payment rows?")) {
@@ -2626,6 +2654,11 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
         }
         .receipt-sheet td.col-item input{ text-align:left; }
         .receipt-sheet tbody td input:focus{ outline:none; background:#fbf6e4; }
+        .receipt-sheet .row-del{
+          width:100%; height:100%; border:none; background:transparent; cursor:pointer;
+          color:var(--red); font-size:16px; font-weight:700; line-height:1;
+        }
+        .receipt-sheet .row-del:hover{ background:rgba(163,39,44,.1); }
         .receipt-sheet tbody tr:nth-child(even) td{ background:rgba(169,130,47,.035); }
         .receipt-sheet tfoot td{ border:1px solid var(--ink); padding:9px 8px; font-size:13px; }
         .receipt-sheet tfoot .total-label{
@@ -2678,7 +2711,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
 
             <div className="no-block">
               <div className="lbl">NO.</div>
-              <input className="no-input" value={statementNo} onChange={(e) => setStatementNo(e.target.value)} />
+              <input className="no-input" value={statementNo} onChange={(e) => setStatementNo(toEnglishDigits(e.target.value))} />
             </div>
           </div>
 
@@ -2687,11 +2720,11 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
           <div className="meta">
             <div className="meta-row date-row">
               <label>Date:</label>
-              <input placeholder="DD" style={{ width: 34 }} value={day} onChange={(e) => setDay(e.target.value)} />
+              <input placeholder="DD" style={{ width: 34 }} value={day} onChange={(e) => setDay(toEnglishDigits(e.target.value))} />
               <span className="sep">/</span>
-              <input placeholder="MM" style={{ width: 34 }} value={month} onChange={(e) => setMonth(e.target.value)} />
+              <input placeholder="MM" style={{ width: 34 }} value={month} onChange={(e) => setMonth(toEnglishDigits(e.target.value))} />
               <span className="sep">/</span>
-              <input placeholder="YYYY" style={{ width: 56 }} value={year} onChange={(e) => setYear(e.target.value)} />
+              <input placeholder="YYYY" style={{ width: 56 }} value={year} onChange={(e) => setYear(toEnglishDigits(e.target.value))} />
               <label style={{ marginLeft: 18 }}>Note:</label>
               <input value={note} onChange={(e) => setNote(e.target.value)} />
             </div>
@@ -2774,7 +2807,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                   <input
                     type="text"
                     value={discount}
-                    onChange={(e) => setDiscount(e.target.value)}
+                    onChange={(e) => setDiscount(toEnglishDigits(e.target.value))}
                     placeholder="0"
                   />
                 </td>
@@ -2802,9 +2835,11 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
           <table>
             <thead>
               <tr>
-                <th className="col-item" style={{ width: "34%" }}>Method</th>
-                <th style={{ width: "33%" }}>Labor</th>
-                <th style={{ width: "33%" }}>21k Gold</th>
+                <th className="col-item" style={{ width: "22%" }}>Method</th>
+                <th style={{ width: "17%" }}>Labor</th>
+                <th style={{ width: "26%" }}>21k Gold</th>
+                <th style={{ width: "23%" }}>Notes</th>
+                <th style={{ width: "12%" }}></th>
               </tr>
             </thead>
             <tbody>
@@ -2814,12 +2849,15 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                     <select value={row.method} onChange={(e) => updatePayment(row.id, "method", e.target.value)}>
                       <option value="">Select method…</option>
                       <option value="Bars">Bars</option>
+                      <option value="Scrap">Scrap</option>
+                      <option value="Money">Money</option>
+                      <option value="Transfer">Transfer</option>
                     </select>
                   </td>
                   <td>
                     <input type="text" value={row.labor} onChange={(e) => updatePayment(row.id, "labor", e.target.value)} />
                   </td>
-                  <td style={row.method === "Bars" ? { height: "auto", padding: "4px 2px" } : undefined}>
+                  <td style={row.method === "Bars" || row.method === "Money" ? { height: "auto", padding: "4px 2px" } : undefined}>
                     {row.method === "Bars" ? (
                       <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                         <div style={{ display: "flex", gap: 4 }}>
@@ -2842,9 +2880,44 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                           {row.gold21k ? `${row.gold21k} g` : "—"}
                         </div>
                       </div>
+                    ) : row.method === "Money" ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <input
+                            type="text"
+                            placeholder="Money"
+                            value={row.moneyAmount}
+                            onChange={(e) => updatePayment(row.id, "moneyAmount", e.target.value)}
+                            style={{ fontSize: 11, textAlign: "center" }}
+                          />
+                          <input
+                            type="text"
+                            placeholder="Gold price"
+                            value={row.goldPrice}
+                            onChange={(e) => updatePayment(row.id, "goldPrice", e.target.value)}
+                            style={{ fontSize: 11, textAlign: "center" }}
+                          />
+                        </div>
+                        <div style={{ textAlign: "center", fontSize: 12, fontWeight: 700, color: "var(--gold-deep)" }}>
+                          {row.gold21k ? `${row.gold21k} g` : "—"}
+                        </div>
+                      </div>
                     ) : (
                       <input type="text" value={row.gold21k} onChange={(e) => updatePayment(row.id, "gold21k", e.target.value)} />
                     )}
+                  </td>
+                  <td>
+                    <input type="text" value={row.note} onChange={(e) => updatePayment(row.id, "note", e.target.value)} />
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="row-del"
+                      onClick={() => removePaymentRow(row.id)}
+                      title="Delete row"
+                    >
+                      &times;
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -2854,6 +2927,8 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                 <td className="total-label">Total Paid</td>
                 <td><input value={totalPaymentLabor.toFixed(2)} readOnly /></td>
                 <td><input value={totalPaymentGold21k.toFixed(2)} readOnly /></td>
+                <td></td>
+                <td></td>
               </tr>
             </tfoot>
           </table>
