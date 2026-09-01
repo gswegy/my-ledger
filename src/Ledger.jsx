@@ -2217,15 +2217,17 @@ const emptyItemRow = () => ({ id: uid(), category: "", price: "", labor: "", gra
 const emptyPaymentRow = () => ({ id: uid(), method: "", amount: "", note: "" });
 
 function CreateReceiptScreen() {
+  const todayParts = todayStr().split("-"); // [YYYY, MM, DD]
   const [statementNo, setStatementNo] = useState("11872");
-  const [day, setDay] = useState("");
-  const [month, setMonth] = useState("");
-  const [year, setYear] = useState("");
+  const [day, setDay] = useState(todayParts[2]);
+  const [month, setMonth] = useState(todayParts[1]);
+  const [year, setYear] = useState(todayParts[0]);
   const [note, setNote] = useState("");
   const [clientName, setClientName] = useState("");
+  const [showClientDropdown, setShowClientDropdown] = useState(false);
   const [customers, setCustomers] = useState([]);
   const [items, setItems] = useState(() => Array.from({ length: 1 }, emptyItemRow));
-  const [payments, setPayments] = useState(() => Array.from({ length: 6 }, emptyPaymentRow));
+  const [payments, setPayments] = useState(() => Array.from({ length: 1 }, emptyPaymentRow));
 
   useEffect(() => {
     (async () => {
@@ -2238,12 +2240,28 @@ function CreateReceiptScreen() {
     })();
   }, []);
 
+  const filteredClients = (clientName.trim()
+    ? customers.filter((c) => (c.name || "").toLowerCase().includes(clientName.trim().toLowerCase()))
+    : customers
+  ).slice(0, 8);
+
   const totalGold = items.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.gram)) || 0), 0);
   const totalLabor = items.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.labor)) || 0), 0);
   const paymentTotal = payments.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.amount)) || 0), 0);
 
   function updateItem(id, field, value) {
-    setItems((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+    setItems((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        const updated = { ...r, [field]: value };
+        if (field === "price" || field === "gram") {
+          const p = parseFloat(toEnglishDigits(field === "price" ? value : updated.price)) || 0;
+          const g = parseFloat(toEnglishDigits(field === "gram" ? value : updated.gram)) || 0;
+          updated.labor = p && g ? (p * g).toFixed(2) : updated.labor;
+        }
+        return updated;
+      })
+    );
   }
   function updatePayment(id, field, value) {
     setPayments((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
@@ -2261,7 +2279,7 @@ function CreateReceiptScreen() {
   }
   function clearPayments() {
     if (window.confirm("Clear all payment rows?")) {
-      setPayments(Array.from({ length: 6 }, emptyPaymentRow));
+      setPayments(Array.from({ length: 1 }, emptyPaymentRow));
     }
   }
 
@@ -2322,6 +2340,18 @@ function CreateReceiptScreen() {
         .receipt-sheet .meta-row input:focus, .receipt-sheet .meta-row select:focus{ outline:none; border-bottom:1px solid var(--gold-deep); }
         .receipt-sheet .date-row input{ width:44px; text-align:center; flex:none; }
         .receipt-sheet .date-row .sep{ color:var(--ink-soft); }
+        .receipt-sheet .note-row input{ min-width:220px; }
+        .receipt-sheet .client-search{ position:relative; flex:1; min-width:180px; }
+        .receipt-sheet .client-search input{ width:100%; }
+        .receipt-sheet .client-dropdown{
+          position:absolute; top:100%; left:0; right:0; margin-top:4px; z-index:10;
+          background:var(--paper); border:1px solid var(--line); border-radius:4px;
+          box-shadow:0 6px 16px rgba(30,25,10,.18); max-height:180px; overflow-y:auto;
+        }
+        .receipt-sheet .client-dropdown-item{
+          padding:8px 10px; font-size:13px; color:var(--ink); cursor:pointer;
+        }
+        .receipt-sheet .client-dropdown-item:hover{ background:#f1ead2; }
         .receipt-sheet table{ width:100%; border-collapse:collapse; border:1.5px solid var(--ink); }
         .receipt-sheet thead th{
           border:1px solid var(--ink); background:#f1ead2; font-size:11px; letter-spacing:.06em;
@@ -2401,17 +2431,41 @@ function CreateReceiptScreen() {
               <input placeholder="MM" style={{ width: 34 }} value={month} onChange={(e) => setMonth(e.target.value)} />
               <span className="sep">/</span>
               <input placeholder="YYYY" style={{ width: 56 }} value={year} onChange={(e) => setYear(e.target.value)} />
-              <label style={{ marginLeft: 18 }}>Note:</label>
+            </div>
+            <div className="meta-row note-row">
+              <label>Note:</label>
               <input value={note} onChange={(e) => setNote(e.target.value)} />
             </div>
             <div className="meta-row">
               <label>Requested from Mr.:</label>
-              <select value={clientName} onChange={(e) => setClientName(e.target.value)}>
-                <option value="">Select client…</option>
-                {customers.map((c) => (
-                  <option key={c.id} value={c.name}>{c.name}</option>
-                ))}
-              </select>
+              <div className="client-search">
+                <input
+                  placeholder="Search client name…"
+                  value={clientName}
+                  onChange={(e) => {
+                    setClientName(e.target.value);
+                    setShowClientDropdown(true);
+                  }}
+                  onFocus={() => setShowClientDropdown(true)}
+                  onBlur={() => setTimeout(() => setShowClientDropdown(false), 150)}
+                />
+                {showClientDropdown && filteredClients.length > 0 && (
+                  <div className="client-dropdown">
+                    {filteredClients.map((c) => (
+                      <div
+                        key={c.id}
+                        className="client-dropdown-item"
+                        onMouseDown={() => {
+                          setClientName(c.name);
+                          setShowClientDropdown(false);
+                        }}
+                      >
+                        {c.name}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
