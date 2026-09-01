@@ -2201,7 +2201,13 @@ function ReceiptsTab() {
         >
           &larr; Receipts
         </button>
-        <CreateReceiptScreen receiptId={openReceiptId} />
+        <CreateReceiptScreen
+          receiptId={openReceiptId}
+          onDeleted={() => {
+            setOpenReceiptId(null);
+            setView("view-list");
+          }}
+        />
       </div>
     );
   }
@@ -2326,9 +2332,20 @@ function ViewReceiptsScreen({ onOpenReceipt }) {
 }
 
 const emptyItemRow = () => ({ id: uid(), category: "", price: "", labor: "", gram: "" });
-const emptyPaymentRow = () => ({ id: uid(), method: "", amount: "", note: "" });
+const emptyPaymentRow = () => ({ id: uid(), method: "", labor: "", gold21k: "", barWeight: "", barKarat: "" });
 
-function CreateReceiptScreen({ receiptId }) {
+// 21k gold is 875 parts per 1000 pure. Converting a bar of a different
+// purity into its 21k-equivalent weight: equivalent = weight * karat / 875.
+// e.g. 100g at 854 karat -> 100 * 854 / 875 = 97.6g of 21k gold.
+const KARAT_21K = 875;
+function computeBarGold21k(weight, karat) {
+  const w = parseFloat(toEnglishDigits(weight)) || 0;
+  const k = parseFloat(toEnglishDigits(karat)) || 0;
+  if (!w || !k) return "";
+  return String(Math.round((w * k / KARAT_21K) * 100) / 100);
+}
+
+function CreateReceiptScreen({ receiptId, onDeleted }) {
   const [loadedId, setLoadedId] = useState(null); // id of the receipt currently loaded, if editing a saved one
   const [statementNo, setStatementNo] = useState("11872");
   const [day, setDay] = useState(() => todayStr().slice(8, 10));
@@ -2344,6 +2361,7 @@ function CreateReceiptScreen({ receiptId }) {
   const [discount, setDiscount] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -2395,7 +2413,8 @@ function CreateReceiptScreen({ receiptId }) {
   const totalLabor = items.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.labor)) || 0), 0);
   const discountAmount = parseFloat(toEnglishDigits(discount)) || 0;
   const netLabor = totalLabor - discountAmount;
-  const paymentTotal = payments.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.amount)) || 0), 0);
+  const totalPaymentLabor = payments.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.labor)) || 0), 0);
+  const totalPaymentGold21k = payments.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.gold21k)) || 0), 0);
 
   function updateItem(id, field, value) {
     setItems((prev) =>
@@ -2412,7 +2431,16 @@ function CreateReceiptScreen({ receiptId }) {
     );
   }
   function updatePayment(id, field, value) {
-    setPayments((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+    setPayments((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        const next = { ...r, [field]: value };
+        if (field === "barWeight" || field === "barKarat") {
+          next.gold21k = computeBarGold21k(next.barWeight, next.barKarat);
+        }
+        return next;
+      })
+    );
   }
   function addItemRow() {
     setItems((prev) => [...prev, emptyItemRow()]);
@@ -2475,6 +2503,37 @@ function CreateReceiptScreen({ receiptId }) {
     } finally {
       setSaving(false);
       setTimeout(() => setSaveMessage(""), 2500);
+    }
+  }
+
+  // Deletes the whole saved statement — from "receipt:<id>" and from the
+  // "receipts-list" index — and hands control back to the caller.
+  async function deleteStatement() {
+    if (!loadedId) return;
+    if (!window.confirm("Delete this receipt? This can't be undone.")) return;
+    setDeleting(true);
+    try {
+      try {
+        await window.storage.delete("receipt:" + loadedId, false);
+      } catch (e) {
+        // key may already be gone; proceed to clean up the index anyway
+      }
+      let list = [];
+      try {
+        const res = await window.storage.get("receipts-list", false);
+        list = res ? JSON.parse(res.value) : [];
+      } catch (e) {
+        list = [];
+      }
+      await window.storage.set(
+        "receipts-list",
+        JSON.stringify(list.filter((r) => r.id !== loadedId)),
+        false
+      );
+      if (onDeleted) onDeleted();
+    } catch (e) {
+      setSaveMessage("Delete failed");
+      setDeleting(false);
     }
   }
 
@@ -2743,30 +2802,58 @@ function CreateReceiptScreen({ receiptId }) {
           <table>
             <thead>
               <tr>
-                <th style={{ width: "34%" }}>Method</th>
-                <th style={{ width: "33%" }}>Amount</th>
-                <th style={{ width: "33%" }}>Note</th>
+                <th className="col-item" style={{ width: "34%" }}>Method</th>
+                <th style={{ width: "33%" }}>Labor</th>
+                <th style={{ width: "33%" }}>21k Gold</th>
               </tr>
             </thead>
             <tbody>
               {payments.map((row) => (
                 <tr key={row.id}>
-                  <td>
-                    <input type="text" value={row.method} onChange={(e) => updatePayment(row.id, "method", e.target.value)} />
+                  <td className="col-item">
+                    <select value={row.method} onChange={(e) => updatePayment(row.id, "method", e.target.value)}>
+                      <option value="">Select method…</option>
+                      <option value="Bars">Bars</option>
+                    </select>
                   </td>
                   <td>
-                    <input type="text" value={row.amount} onChange={(e) => updatePayment(row.id, "amount", e.target.value)} />
+                    <input type="text" value={row.labor} onChange={(e) => updatePayment(row.id, "labor", e.target.value)} />
                   </td>
-                  <td>
-                    <input type="text" value={row.note} onChange={(e) => updatePayment(row.id, "note", e.target.value)} />
+                  <td style={row.method === "Bars" ? { height: "auto", padding: "4px 2px" } : undefined}>
+                    {row.method === "Bars" ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <input
+                            type="text"
+                            placeholder="Wt (g)"
+                            value={row.barWeight}
+                            onChange={(e) => updatePayment(row.id, "barWeight", e.target.value)}
+                            style={{ fontSize: 11, textAlign: "center" }}
+                          />
+                          <input
+                            type="text"
+                            placeholder="Karat"
+                            value={row.barKarat}
+                            onChange={(e) => updatePayment(row.id, "barKarat", e.target.value)}
+                            style={{ fontSize: 11, textAlign: "center" }}
+                          />
+                        </div>
+                        <div style={{ textAlign: "center", fontSize: 12, fontWeight: 700, color: "var(--gold-deep)" }}>
+                          {row.gold21k ? `${row.gold21k} g` : "—"}
+                        </div>
+                      </div>
+                    ) : (
+                      <input type="text" value={row.gold21k} onChange={(e) => updatePayment(row.id, "gold21k", e.target.value)} />
+                    )}
                   </td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr>
-                <td><input value={paymentTotal.toFixed(2)} readOnly /></td>
-                <td colSpan={2} className="total-label">Total Paid</td>
+                <td className="total-label">Total Paid</td>
+                <td><input value={totalPaymentLabor.toFixed(2)} readOnly /></td>
+                <td><input value={totalPaymentGold21k.toFixed(2)} readOnly /></td>
               </tr>
             </tfoot>
           </table>
@@ -2782,9 +2869,19 @@ function CreateReceiptScreen({ receiptId }) {
                   {saveMessage}
                 </span>
               ) : null}
-              <button className="rbtn" onClick={saveStatement} disabled={saving}>
+              <button className="rbtn" onClick={saveStatement} disabled={saving || deleting}>
                 {saving ? "Saving…" : loadedId ? "Update" : "Save"}
               </button>
+              {loadedId ? (
+                <button
+                  className="rbtn ghost"
+                  onClick={deleteStatement}
+                  disabled={saving || deleting}
+                  style={{ borderColor: "#a3272c", color: "#a3272c" }}
+                >
+                  {deleting ? "Deleting…" : "Delete"}
+                </button>
+              ) : null}
               <button className="rbtn ghost" onClick={() => window.print()}>Print</button>
             </div>
           </div>
