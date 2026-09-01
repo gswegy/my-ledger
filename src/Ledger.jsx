@@ -2218,16 +2218,16 @@ const emptyPaymentRow = () => ({ id: uid(), method: "", amount: "", note: "" });
 
 function CreateReceiptScreen() {
   const [statementNo, setStatementNo] = useState("11872");
-  const [day, setDay] = useState("");
-  const [month, setMonth] = useState("");
-  const [year, setYear] = useState("");
+  const [day, setDay] = useState(() => todayStr().slice(8, 10));
+  const [month, setMonth] = useState(() => todayStr().slice(5, 7));
+  const [year, setYear] = useState(() => todayStr().slice(0, 4));
   const [note, setNote] = useState("");
   const [clientName, setClientName] = useState("");
   const [showClientDropdown, setShowClientDropdown] = useState(false);
   const [customers, setCustomers] = useState([]);
   const [categories, setCategories] = useState([]);
   const [items, setItems] = useState(() => Array.from({ length: 1 }, emptyItemRow));
-  const [payments, setPayments] = useState(() => Array.from({ length: 6 }, emptyPaymentRow));
+  const [payments, setPayments] = useState(() => Array.from({ length: 1 }, emptyPaymentRow));
   const [discount, setDiscount] = useState("");
 
   useEffect(() => {
@@ -2258,7 +2258,18 @@ function CreateReceiptScreen() {
   const paymentTotal = payments.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.amount)) || 0), 0);
 
   function updateItem(id, field, value) {
-    setItems((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+    setItems((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        const next = { ...r, [field]: value };
+        if (field === "gram" || field === "price") {
+          const g = parseFloat(toEnglishDigits(next.gram)) || 0;
+          const p = parseFloat(toEnglishDigits(next.price)) || 0;
+          next.labor = String(Math.round(g * p * 100) / 100);
+        }
+        return next;
+      })
+    );
   }
   function updatePayment(id, field, value) {
     setPayments((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
@@ -2276,7 +2287,7 @@ function CreateReceiptScreen() {
   }
   function clearPayments() {
     if (window.confirm("Clear all payment rows?")) {
-      setPayments(Array.from({ length: 6 }, emptyPaymentRow));
+      setPayments(Array.from({ length: 1 }, emptyPaymentRow));
     }
   }
 
@@ -2355,6 +2366,7 @@ function CreateReceiptScreen() {
           font-size:13px; color:var(--ink); padding:0 6px; appearance:none; -webkit-appearance:none; cursor:pointer;
         }
         .receipt-sheet td select:focus{ outline:none; background:#fbf6e4; }
+        .receipt-sheet tfoot tr.final-total-row td{ border-top:2.5px solid var(--ink); }
         .receipt-sheet table{ width:100%; border-collapse:collapse; border:1.5px solid var(--ink); }
         .receipt-sheet thead th{
           border:1px solid var(--ink); background:#f1ead2; font-size:11px; letter-spacing:.06em;
@@ -2506,8 +2518,8 @@ function CreateReceiptScreen() {
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={2} className="total-label">Totals</td>
-                <td><input value={netLabor.toFixed(2)} readOnly /></td>
+                <td colSpan={2} className="total-label">Total</td>
+                <td><input value={totalLabor.toFixed(2)} readOnly /></td>
                 <td><input value={totalGold.toFixed(2)} readOnly /></td>
               </tr>
               <tr>
@@ -2520,6 +2532,11 @@ function CreateReceiptScreen() {
                     placeholder="0"
                   />
                 </td>
+                <td></td>
+              </tr>
+              <tr className="final-total-row">
+                <td colSpan={2} className="total-label">Total</td>
+                <td><input value={netLabor.toFixed(2)} readOnly /></td>
                 <td></td>
               </tr>
             </tfoot>
