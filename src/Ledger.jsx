@@ -2223,10 +2223,23 @@ function CreateReceiptScreen() {
   const [year, setYear] = useState("");
   const [note, setNote] = useState("");
   const [clientName, setClientName] = useState("");
-  const [items, setItems] = useState(() => Array.from({ length: 14 }, emptyItemRow));
+  const [customers, setCustomers] = useState([]);
+  const [items, setItems] = useState(() => Array.from({ length: 1 }, emptyItemRow));
   const [payments, setPayments] = useState(() => Array.from({ length: 6 }, emptyPaymentRow));
 
-  const total = items.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.price)) || 0), 0);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await window.storage.get("customers-list", false);
+        setCustomers(res ? JSON.parse(res.value) : []);
+      } catch (e) {
+        setCustomers([]);
+      }
+    })();
+  }, []);
+
+  const totalGold = items.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.gram)) || 0), 0);
+  const totalLabor = items.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.labor)) || 0), 0);
   const paymentTotal = payments.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.amount)) || 0), 0);
 
   function updateItem(id, field, value) {
@@ -2240,7 +2253,7 @@ function CreateReceiptScreen() {
   }
   function clearItems() {
     if (window.confirm("Clear all rows?")) {
-      setItems(Array.from({ length: 14 }, emptyItemRow));
+      setItems(Array.from({ length: 1 }, emptyItemRow));
     }
   }
   function addPaymentRow() {
@@ -2301,11 +2314,12 @@ function CreateReceiptScreen() {
         .receipt-sheet .meta{ display:flex; flex-direction:column; gap:12px; margin-bottom:22px; }
         .receipt-sheet .meta-row{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
         .receipt-sheet .meta-row label{ font-size:12px; color:var(--ink-soft); white-space:nowrap; letter-spacing:.03em; }
-        .receipt-sheet .meta-row input{
+        .receipt-sheet .meta-row input, .receipt-sheet .meta-row select{
           flex:1; border:none; border-bottom:1px dotted var(--gold); background:transparent;
           font-family:inherit; font-size:14px; color:var(--ink); padding:3px 4px; min-width:60px;
         }
-        .receipt-sheet .meta-row input:focus{ outline:none; border-bottom:1px solid var(--gold-deep); }
+        .receipt-sheet .meta-row select{ appearance:none; -webkit-appearance:none; cursor:pointer; }
+        .receipt-sheet .meta-row input:focus, .receipt-sheet .meta-row select:focus{ outline:none; border-bottom:1px solid var(--gold-deep); }
         .receipt-sheet .date-row input{ width:44px; text-align:center; flex:none; }
         .receipt-sheet .date-row .sep{ color:var(--ink-soft); }
         .receipt-sheet table{ width:100%; border-collapse:collapse; border:1.5px solid var(--ink); }
@@ -2392,7 +2406,12 @@ function CreateReceiptScreen() {
             </div>
             <div className="meta-row">
               <label>Requested from Mr.:</label>
-              <input placeholder="Client name" value={clientName} onChange={(e) => setClientName(e.target.value)} />
+              <select value={clientName} onChange={(e) => setClientName(e.target.value)}>
+                <option value="">Select client…</option>
+                {customers.map((c) => (
+                  <option key={c.id} value={c.name}>{c.name}</option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -2425,8 +2444,9 @@ function CreateReceiptScreen() {
             </tbody>
             <tfoot>
               <tr>
-                <td><input value={total.toFixed(2)} readOnly /></td>
-                <td colSpan={3} className="total-label">Total</td>
+                <td colSpan={2} className="total-label">Totals</td>
+                <td><input value={totalLabor.toFixed(2)} readOnly /></td>
+                <td><input value={totalGold.toFixed(2)} readOnly /></td>
               </tr>
             </tfoot>
           </table>
