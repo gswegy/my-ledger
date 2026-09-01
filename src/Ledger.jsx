@@ -2470,6 +2470,9 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
   function addItemRow() {
     setItems((prev) => [...prev, emptyItemRow()]);
   }
+  function removeItemRow(id) {
+    setItems((prev) => prev.filter((r) => r.id !== id));
+  }
   function clearItems() {
     if (window.confirm("Clear all rows?")) {
       setItems(Array.from({ length: 1 }, emptyItemRow));
@@ -2763,13 +2766,16 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
             </div>
           </div>
 
+          <h2 className="section-title">Sales</h2>
+
           <table>
             <thead>
               <tr>
-                <th className="col-item" style={{ width: "34%" }}>Category</th>
-                <th style={{ width: "22%" }}>Price</th>
-                <th style={{ width: "22%" }}>Labor</th>
-                <th style={{ width: "22%" }}>Gram</th>
+                <th className="col-item" style={{ width: "30%" }}>Category</th>
+                <th style={{ width: "19%" }}>Price</th>
+                <th style={{ width: "19%" }}>Labor</th>
+                <th style={{ width: "19%" }}>Gram</th>
+                <th style={{ width: "13%" }}></th>
               </tr>
             </thead>
             <tbody>
@@ -2792,6 +2798,16 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                   <td>
                     <input type="text" value={row.gram} onChange={(e) => updateItem(row.id, "gram", e.target.value)} />
                   </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="row-del"
+                      onClick={() => removeItemRow(row.id)}
+                      title="Delete row"
+                    >
+                      &times;
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -2800,6 +2816,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                 <td colSpan={2} className="total-label">Total</td>
                 <td><input value={totalLabor.toFixed(2)} readOnly /></td>
                 <td><input value={totalGold.toFixed(2)} readOnly /></td>
+                <td></td>
               </tr>
               <tr>
                 <td colSpan={2} className="total-label">Discount</td>
@@ -2812,10 +2829,12 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                   />
                 </td>
                 <td></td>
+                <td></td>
               </tr>
               <tr className="final-total-row">
                 <td colSpan={2} className="total-label">Total</td>
                 <td><input value={netLabor.toFixed(2)} readOnly /></td>
+                <td></td>
                 <td></td>
               </tr>
             </tfoot>
