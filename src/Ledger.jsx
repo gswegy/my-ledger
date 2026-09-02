@@ -2752,6 +2752,20 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
       } catch (e) {
         setCategories([]);
       }
+      // For a brand-new statement (not one opened from View Receipts),
+      // show the next number after whichever was last actually saved —
+      // the counter itself only advances once this one is saved, so
+      // closing without saving doesn't burn a number.
+      if (!receiptId) {
+        try {
+          const res = await window.storage.get("statement-counter", false);
+          const last = res ? parseInt(toEnglishDigits(res.value), 10) : NaN;
+          const base = isNaN(last) ? 11871 : last;
+          setStatementNo(String(base + 1));
+        } catch (e) {
+          // keep the default statementNo already in state
+        }
+      }
     })();
   }, []);
 
@@ -2855,6 +2869,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
     setSaving(true);
     setSaveMessage("");
     try {
+      const isNewStatement = !loadedId;
       const id = loadedId || uid();
       const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 
@@ -2902,6 +2917,23 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
       const withoutThis = list.filter((r) => r.id !== id);
       const indexEntry = { id, statementNo, clientName, date: dateStr, note, savedAt: data.savedAt };
       await window.storage.set("receipts-list", JSON.stringify([indexEntry, ...withoutThis]), false);
+
+      // Advance the shared counter so the next brand-new statement gets a
+      // fresh number — using whichever number this one actually saved
+      // under (respecting a manual edit to the field, if any).
+      if (isNewStatement) {
+        const numeric = parseInt(toEnglishDigits(statementNo), 10);
+        if (!isNaN(numeric)) {
+          try {
+            const counterRes = await window.storage.get("statement-counter", false);
+            const current = counterRes ? parseInt(toEnglishDigits(counterRes.value), 10) : NaN;
+            const newCounter = isNaN(current) ? numeric : Math.max(current, numeric);
+            await window.storage.set("statement-counter", String(newCounter), false);
+          } catch (e) {
+            // best-effort; worst case the next new statement re-offers this number
+          }
+        }
+      }
 
       setLoadedId(id);
       setPosted(newPosted);
