@@ -1,6 +1,282 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, createContext, useContext } from "react";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
+
+
+// ---------------------------------------------------------------------------
+// Language support (English / Arabic). Numbers, dates, and money/gram
+// amounts always stay in English digits (see toEnglishDigits/money/grams
+// above) — only the UI copy switches.
+// ---------------------------------------------------------------------------
+const translations = {
+  en: {
+    home: "Home", app_title: "Modern Gold", nav_clients: "Clients", nav_receipts: "Receipts", nav_reviews: "Reviews",
+    sr_ledger_desc: "Client ledger for tracking gold, wages, and jewelry price lists",
+    loading_ledger: "Loading ledger…", loading: "Loading…",
+    client_ledger_label: "Client ledger", your_clients: "Your clients", backup: "Backup", categories: "Categories",
+    add_a_client: "Add a client", client_name_ph: "Client name", phone_optional_ph: "Phone (optional)",
+    add_client: "Add client", cancel: "Cancel", add_new_client: "+ Add new client", search_clients_ph: "Search clients",
+    no_clients_yet: "No clients yet. Add your first one above.", no_clients_match: 'No clients match "{q}".',
+    gold_amount: "Gold {v}", wages_amount: "Wages {v}", enter_client_name: "Enter a client name",
+    all_clients: "All clients", backup_restore: "Backup & restore", export_your_data: "Export your data",
+    export_desc: "Copy this and save it somewhere safe (Notes, email to yourself, etc.). Paste it back in below any time you need to restore it — for example, after I send you an updated version of this app.",
+    preparing_backup: "Preparing backup…", copy_backup: "Copy backup", copied: "Copied",
+    copy_failed: "Couldn't copy — select and copy manually", save_to_file: "Save to file",
+    daily_backups: "Daily backups",
+    daily_backups_desc: "A snapshot is saved automatically once a day when you open the app. If something ever goes wrong, restore the most recent good one below.",
+    no_daily_backups: "No automatic backups yet — one will be created next time you open the app.",
+    restore_daily_confirm: "Restore the {d} backup? This overwrites everything currently in the app.",
+    yes_restore: "Yes, restore", restore: "Restore",
+    restored_success: "Restored {d} successfully", restore_failed_daily: "Couldn't restore that backup — nothing was changed",
+    restore_from_backup: "Restore from backup",
+    restore_desc: "Paste a previously copied backup here, or upload a saved backup file. This replaces everything currently in the app.",
+    upload_backup_file: "Upload backup file", paste_backup_ph: "Paste backup text here",
+    restored_successfully: "Restored successfully", restore_failed_invalid: "That didn't look like a valid backup — nothing was changed",
+    overwrite_confirm: "This will overwrite all current clients and entries. Continue?", restore_this_backup: "Restore this backup",
+    jewelry_categories: "Jewelry categories",
+    categories_desc: "Add the types of jewelry you sell here. You'll set a wage price for each one, per client, from that client's page.",
+    category_ph: "e.g. Gold ring, Chain, Bracelet", add: "Add", enter_category_name: "Enter a category name",
+    no_categories_yet: "No categories yet. Add your first one above.", delete_q: "Delete?", yes: "Yes",
+    edit: "Edit", delete: "Delete", save: "Save",
+    contact_info: "Contact info", price_list: "Price list", phone_number_ph: "Phone number", address_ph: "Address",
+    tab_gold: "Gold", tab_wages: "Wages", tab_review: "Review",
+    took_gold: "Took gold", gave_back: "Gave back", no_gold_entries: "No gold entries yet.",
+    took_wages: "Took wages", paid_back_label: "Paid back", no_wage_entries: "No wage entries yet.",
+    remove_client_confirm: "Remove {name} and all their records? This can't be undone.",
+    yes_remove: "Yes, remove", remove_this_client: "Remove this client",
+    book_options: "Book options", add_new_book: "Add new book", delete_book_named: 'Delete "{b}" book',
+    book_hint: "e.g. 2027", book_name_ph: "Book name", add_book: "Add book",
+    enter_book_name: "Enter a book name", book_already_exists: "That book already exists",
+    delete_book_confirm: 'Delete the "{b}" book? All its entries will be permanently removed.', yes_delete: "Yes, delete",
+    current_book: "Current", balance_for_book: "Balance for this book: {v}",
+    owed_to_you: "owed to you", owed_to_client: "owed to client", settled: "settled",
+    activity: "Activity", custom_activity: "Custom Activity", back: "Back",
+    custom_activity_desc: "Pick a date range to see how much gold and wages were taken and paid back in that period.",
+    from_label: "From", to_label: "To", taken: "Taken", paid_back_stat: "Paid back",
+    review_desc: "For each month, what was still owed coming in vs. what got paid back by month's end. Repayment is expected within 4 weeks, so anything left owed here is running late.",
+    no_gold_history: "No gold history yet.", no_wage_history: "No wage history yet.",
+    owed_at_start: "Owed at start (1st)", paid_back_by_end: "Paid back (by end)",
+    late_outstanding: "Late — {v} still outstanding from this period",
+    taken_later: "+{v} taken later in the month (not counted above)",
+    no_jewelry_categories: "No jewelry categories yet.", add_categories: "Add categories",
+    set_wage_price_desc: "Set this client's wage price for each category.", edit_categories: "Edit categories",
+    balance: "Balance", note_optional_ph: "Note (optional)", grams_ph: "Grams", amount_ph: "Amount",
+    update: "Update", delete_entry_confirm: "Delete this entry for good?", delete_this_entry: "Delete this entry",
+    coming_soon: "Coming soon.",
+    receipts: "Receipts", create_receipt: "Create Receipt", view_receipts: "View Receipts",
+    saved_receipts: "Saved Receipts", no_receipts_yet: "No receipts saved yet.", unnamed_client: "Unnamed client",
+    receipt_no_date: "No. {no} · {date}", no_date: "no date",
+    couldnt_load_receipt: "Couldn't load that receipt",
+    statement: "Statement", order_details: "order details", no_label: "NO.",
+    date_label: "Date:", note_label: "Note:", requested_from: "Requested from Mr.:",
+    search_client_name_ph: "Search client name…",
+    linked_client: "Linked to client — totals will post to their book",
+    not_linked_client: "Not linked — pick a name from the list to post totals",
+    sales_section: "Sales", category_col: "Category", price_col: "Price", labor_col: "Labor", gram_col: "Gram",
+    select_category_ph: "Select category…", total_label: "Total", discount_label: "Discount",
+    add_row: "+ Add row", clear: "Clear", payments_section: "Payments",
+    method_col: "Method", gold21k_col: "21k Gold", notes_col: "Notes",
+    select_method_ph: "Select method…", method_bars: "Bars", method_scrap: "Scrap", method_money: "Money", method_transfer: "Transfer",
+    wt_g_ph: "Wt (g)", karat_ph: "Karat", money_ph: "Money", gold_price_ph: "Gold price",
+    total_paid: "Total Paid", saving: "Saving…", deleting: "Deleting…", print: "Print",
+    foot_note: "Prices subject to the daily gold rate",
+    delete_row_title: "Delete row",
+    clear_rows_confirm: "Clear all rows?", clear_payments_confirm: "Clear all payment rows?",
+    delete_receipt_confirm: "Delete this receipt? This can't be undone.",
+    saved_posted: "Saved & posted to client", saved_unlinked: "Saved (not linked to a client)",
+    save_failed: "Save failed", delete_failed: "Delete failed",
+    reviews: "Reviews", assets_liabilities: "Assets & Liabilities", sales: "Sales",
+    gold_section: "Gold", wages_section: "Wages", owed_to_you_card: "Owed to you", you_owe_card: "You owe",
+    clients_checked: "{n} client(s) checked", error_label: " — error: {e}",
+    sales_desc: "Total gold and wages taken by clients, by month", no_sales_yet: "No sales recorded yet.",
+    gold_sold: "Gold sold", wages_sold: "Wages sold",
+  },
+  ar: {
+    home: "الرئيسية", app_title: "الذهب الحديث", nav_clients: "العملاء", nav_receipts: "الإيصالات", nav_reviews: "المراجعات",
+    sr_ledger_desc: "سجل عملاء لتتبع الذهب والأجور وقوائم أسعار المجوهرات",
+    loading_ledger: "جارٍ تحميل السجل…", loading: "جارٍ التحميل…",
+    client_ledger_label: "سجل العملاء", your_clients: "عملاؤك", backup: "نسخ احتياطي", categories: "الفئات",
+    add_a_client: "إضافة عميل", client_name_ph: "اسم العميل", phone_optional_ph: "الهاتف (اختياري)",
+    add_client: "إضافة عميل", cancel: "إلغاء", add_new_client: "+ إضافة عميل جديد", search_clients_ph: "بحث عن العملاء",
+    no_clients_yet: "لا يوجد عملاء بعد. أضف أول عميل أعلاه.", no_clients_match: 'لا يوجد عملاء مطابقون لـ "{q}".',
+    gold_amount: "ذهب {v}", wages_amount: "أجور {v}", enter_client_name: "أدخل اسم العميل",
+    all_clients: "جميع العملاء", backup_restore: "النسخ الاحتياطي والاستعادة", export_your_data: "تصدير بياناتك",
+    export_desc: "انسخ هذا واحفظه في مكان آمن (الملاحظات، بريد إلكتروني لنفسك، إلخ). الصقه مرة أخرى أدناه في أي وقت تحتاج فيه لاستعادته — على سبيل المثال بعد إرسال نسخة محدثة من هذا التطبيق.",
+    preparing_backup: "جارٍ تحضير النسخة الاحتياطية…", copy_backup: "نسخ النسخة الاحتياطية", copied: "تم النسخ",
+    copy_failed: "تعذر النسخ — حدد وانسخ يدويًا", save_to_file: "حفظ كملف",
+    daily_backups: "النسخ الاحتياطية اليومية",
+    daily_backups_desc: "يتم حفظ لقطة تلقائيًا مرة واحدة يوميًا عند فتح التطبيق. إذا حدث خطأ ما، استعد آخر نسخة جيدة أدناه.",
+    no_daily_backups: "لا توجد نسخ احتياطية تلقائية بعد — سيتم إنشاء واحدة في المرة القادمة التي تفتح فيها التطبيق.",
+    restore_daily_confirm: "استعادة نسخة {d} الاحتياطية؟ سيؤدي هذا إلى استبدال كل شيء في التطبيق حاليًا.",
+    yes_restore: "نعم، استعادة", restore: "استعادة",
+    restored_success: "تمت استعادة {d} بنجاح", restore_failed_daily: "تعذرت استعادة هذه النسخة — لم يتغير شيء",
+    restore_from_backup: "الاستعادة من نسخة احتياطية",
+    restore_desc: "الصق نسخة احتياطية منسوخة سابقًا هنا، أو ارفع ملف نسخة احتياطية محفوظ. سيؤدي هذا إلى استبدال كل شيء في التطبيق حاليًا.",
+    upload_backup_file: "رفع ملف النسخة الاحتياطية", paste_backup_ph: "الصق نص النسخة الاحتياطية هنا",
+    restored_successfully: "تمت الاستعادة بنجاح", restore_failed_invalid: "لا يبدو هذا نسخة احتياطية صالحة — لم يتغير شيء",
+    overwrite_confirm: "سيؤدي هذا إلى استبدال جميع العملاء والقيود الحالية. هل تريد المتابعة؟", restore_this_backup: "استعادة هذه النسخة",
+    jewelry_categories: "فئات المجوهرات",
+    categories_desc: "أضف هنا أنواع المجوهرات التي تبيعها. ستحدد سعر الأجرة لكل نوع، لكل عميل، من صفحة ذلك العميل.",
+    category_ph: "مثال: خاتم ذهب، سلسلة، سوار", add: "إضافة", enter_category_name: "أدخل اسم الفئة",
+    no_categories_yet: "لا توجد فئات بعد. أضف أول فئة أعلاه.", delete_q: "حذف؟", yes: "نعم",
+    edit: "تعديل", delete: "حذف", save: "حفظ",
+    contact_info: "معلومات الاتصال", price_list: "قائمة الأسعار", phone_number_ph: "رقم الهاتف", address_ph: "العنوان",
+    tab_gold: "ذهب", tab_wages: "أجور", tab_review: "مراجعة",
+    took_gold: "أخذ ذهب", gave_back: "أعاد", no_gold_entries: "لا توجد قيود ذهب بعد.",
+    took_wages: "أخذ أجور", paid_back_label: "أعاد الدفع", no_wage_entries: "لا توجد قيود أجور بعد.",
+    remove_client_confirm: "إزالة {name} وجميع سجلاته؟ لا يمكن التراجع عن هذا.",
+    yes_remove: "نعم، إزالة", remove_this_client: "إزالة هذا العميل",
+    book_options: "خيارات الدفتر", add_new_book: "إضافة دفتر جديد", delete_book_named: 'حذف دفتر "{b}"',
+    book_hint: "مثال: 2027", book_name_ph: "اسم الدفتر", add_book: "إضافة دفتر",
+    enter_book_name: "أدخل اسم الدفتر", book_already_exists: "هذا الدفتر موجود بالفعل",
+    delete_book_confirm: 'حذف دفتر "{b}"؟ ستتم إزالة جميع قيوده نهائيًا.', yes_delete: "نعم، حذف",
+    current_book: "الحالي", balance_for_book: "رصيد هذا الدفتر: {v}",
+    owed_to_you: "مستحق لك", owed_to_client: "مستحق للعميل", settled: "مسوّى",
+    activity: "النشاط", custom_activity: "نشاط مخصص", back: "رجوع",
+    custom_activity_desc: "اختر نطاقًا زمنيًا لمعرفة كمية الذهب والأجور التي تم أخذها وسدادها خلال تلك الفترة.",
+    from_label: "من", to_label: "إلى", taken: "مأخوذ", paid_back_stat: "تم سداده",
+    review_desc: "لكل شهر، ما كان لا يزال مستحقًا في بدايته مقابل ما تم سداده بنهايته. من المتوقع السداد خلال 4 أسابيع، لذا أي مبلغ متبقٍ هنا متأخر.",
+    no_gold_history: "لا يوجد سجل ذهب بعد.", no_wage_history: "لا يوجد سجل أجور بعد.",
+    owed_at_start: "المستحق في البداية (1)", paid_back_by_end: "المسدد (بنهاية الشهر)",
+    late_outstanding: "متأخر — لا يزال {v} مستحقًا من هذه الفترة",
+    taken_later: "+{v} تم أخذه لاحقًا في الشهر (غير محتسب أعلاه)",
+    no_jewelry_categories: "لا توجد فئات مجوهرات بعد.", add_categories: "إضافة فئات",
+    set_wage_price_desc: "حدد سعر الأجرة لهذا العميل لكل فئة.", edit_categories: "تعديل الفئات",
+    balance: "الرصيد", note_optional_ph: "ملاحظة (اختياري)", grams_ph: "غرام", amount_ph: "المبلغ",
+    update: "تحديث", delete_entry_confirm: "حذف هذا القيد نهائيًا؟", delete_this_entry: "حذف هذا القيد",
+    coming_soon: "قريبًا.",
+    receipts: "الإيصالات", create_receipt: "إنشاء إيصال", view_receipts: "عرض الإيصالات",
+    saved_receipts: "الإيصالات المحفوظة", no_receipts_yet: "لا توجد إيصالات محفوظة بعد.", unnamed_client: "عميل بدون اسم",
+    receipt_no_date: "رقم {no} · {date}", no_date: "بدون تاريخ",
+    couldnt_load_receipt: "تعذر تحميل هذا الإيصال",
+    statement: "كشف حساب", order_details: "تفاصيل الطلب", no_label: "رقم.",
+    date_label: "التاريخ:", note_label: "ملاحظة:", requested_from: "مطلوب من السيد:",
+    search_client_name_ph: "ابحث عن اسم العميل…",
+    linked_client: "مرتبط بعميل — ستُرحّل الإجماليات إلى دفتره",
+    not_linked_client: "غير مرتبط — اختر اسمًا من القائمة لترحيل الإجماليات",
+    sales_section: "المبيعات", category_col: "الفئة", price_col: "السعر", labor_col: "الأجرة", gram_col: "الوزن",
+    select_category_ph: "اختر الفئة…", total_label: "الإجمالي", discount_label: "الخصم",
+    add_row: "+ إضافة صف", clear: "مسح", payments_section: "المدفوعات",
+    method_col: "الطريقة", gold21k_col: "ذهب عيار 21", notes_col: "ملاحظات",
+    select_method_ph: "اختر الطريقة…", method_bars: "سبائك", method_scrap: "خردة", method_money: "نقدًا", method_transfer: "تحويل",
+    wt_g_ph: "الوزن (غ)", karat_ph: "العيار", money_ph: "المبلغ", gold_price_ph: "سعر الذهب",
+    total_paid: "إجمالي المدفوع", saving: "جارٍ الحفظ…", deleting: "جارٍ الحذف…", print: "طباعة",
+    foot_note: "الأسعار قابلة للتغيير حسب سعر الذهب اليومي",
+    delete_row_title: "حذف الصف",
+    clear_rows_confirm: "مسح جميع الصفوف؟", clear_payments_confirm: "مسح جميع صفوف الدفع؟",
+    delete_receipt_confirm: "حذف هذا الإيصال؟ لا يمكن التراجع عن هذا.",
+    saved_posted: "تم الحفظ والترحيل إلى العميل", saved_unlinked: "تم الحفظ (غير مرتبط بعميل)",
+    save_failed: "فشل الحفظ", delete_failed: "فشل الحذف",
+    reviews: "المراجعات", assets_liabilities: "الأصول والالتزامات", sales: "المبيعات",
+    gold_section: "ذهب", wages_section: "أجور", owed_to_you_card: "مستحق لك", you_owe_card: "أنت مدين",
+    clients_checked: "تم فحص {n} عميل/عملاء", error_label: " — خطأ: {e}",
+    sales_desc: "إجمالي الذهب والأجور المأخوذة من العملاء، حسب الشهر", no_sales_yet: "لا توجد مبيعات مسجلة بعد.",
+    gold_sold: "الذهب المباع", wages_sold: "الأجور المباعة",
+  },
+};
+
+const LanguageContext = createContext({
+  lang: "en",
+  dir: "ltr",
+  t: (key, vars) => {
+    let s = translations.en[key] || key;
+    if (vars) Object.keys(vars).forEach((k) => { s = s.replace("{" + k + "}", vars[k]); });
+    return s;
+  },
+  toggleLang: () => {},
+});
+
+function useLang() {
+  return useContext(LanguageContext);
+}
+
+function LanguageProvider({ children }) {
+  const [lang, setLang] = useState("en");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await window.storage.get("app-language", false);
+        if (res && (res.value === "ar" || res.value === "en")) setLang(res.value);
+      } catch (e) {
+        // no saved preference yet
+      }
+    })();
+  }, []);
+
+  const setLangDirect = useCallback((next) => {
+    setLang(next);
+    window.storage.set("app-language", next, false).catch(() => {});
+  }, []);
+
+  const toggleLang = useCallback(() => {
+    setLang((prev) => {
+      const next = prev === "en" ? "ar" : "en";
+      window.storage.set("app-language", next, false).catch(() => {});
+      return next;
+    });
+  }, []);
+
+  const t = useCallback(
+    (key, vars) => {
+      let s = (translations[lang] && translations[lang][key]) || translations.en[key] || key;
+      if (vars) Object.keys(vars).forEach((k) => { s = s.replace("{" + k + "}", vars[k]); });
+      return s;
+    },
+    [lang]
+  );
+
+  // Layout always stays left-to-right — only the words themselves switch
+  // to Arabic. Numbers/dates/money already stay English via toEnglishDigits
+  // and the locale-less toLocaleString calls in money()/grams().
+  const dir = "ltr";
+
+  return (
+    <LanguageContext.Provider value={{ lang, t, dir, toggleLang, setLangDirect }}>
+      {children}
+    </LanguageContext.Provider>
+  );
+}
+
+const langToggleBtnStyle = {
+  position: "absolute",
+  top: "1.25rem",
+  left: "1rem",
+  background: "#232019",
+  border: "1px solid #3A3527",
+  borderRadius: 8,
+  padding: "0.35rem 0.7rem",
+  color: "#C9A227",
+  fontSize: 12,
+  fontWeight: 600,
+  cursor: "pointer",
+  zIndex: 5,
+};
+
+const langMenuStyle = {
+  position: "absolute",
+  top: "2.65rem",
+  left: "1rem",
+  background: "#232019",
+  border: "1px solid #3A3527",
+  borderRadius: 8,
+  overflow: "hidden",
+  zIndex: 6,
+  minWidth: 110,
+};
+
+const langMenuItemStyle = {
+  display: "block",
+  width: "100%",
+  textAlign: "left",
+  background: "transparent",
+  border: "none",
+  padding: "0.55rem 0.7rem",
+  color: "#F3EEE3",
+  fontSize: 13,
+  cursor: "pointer",
+};
+
 
 // Converts Arabic-Indic (٠-٩) and Extended Arabic-Indic/Persian (۰-۹) digits,
 // plus Arabic decimal/thousands separators, to plain English digits/punctuation.
@@ -173,6 +449,7 @@ async function postStatementToClient(clientId, statementNo, dateStr, totals) {
 }
 
 function ClientsTab() {
+  const { t, dir } = useLang();
   const [customers, setCustomers] = useState(null);
   const [categories, setCategories] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -258,7 +535,7 @@ function ClientsTab() {
   async function handleAddCustomer() {
     const name = newName.trim();
     if (!name) {
-      setAddError("Enter a client name");
+      setAddError(t("enter_client_name"));
       return;
     }
     const c = { id: uid(), name, phone: newPhone.trim() };
@@ -356,7 +633,7 @@ function ClientsTab() {
   async function addCategory() {
     const name = newCategory.trim();
     if (!name) {
-      setCategoryError("Enter a category name");
+      setCategoryError(t("enter_category_name"));
       return;
     }
     await saveCategories([...(categories || []), { id: uid(), name }]);
@@ -387,7 +664,7 @@ function ClientsTab() {
   async function saveEditCategory() {
     const name = categoryDraftName.trim();
     if (!name) {
-      setCategoryEditError("Enter a category name");
+      setCategoryEditError(t("enter_category_name"));
       return;
     }
     await saveCategories((categories || []).map((c) => (c.id === editingCategoryId ? { ...c, name } : c)));
@@ -562,7 +839,7 @@ function ClientsTab() {
     return (
       <div style={{ ...styles.wrap, textAlign: "center", paddingTop: "3rem" }}>
         {fontLink}
-        <span style={{ color: "#8B7355" }}>Loading ledger…</span>
+        <span style={{ color: "#8B7355" }}>{t("loading_ledger")}</span>
       </div>
     );
   }
@@ -570,10 +847,10 @@ function ClientsTab() {
   const active = (customers || []).find((c) => c.id === activeId);
 
   return (
-    <div style={styles.wrap}>
+    <div style={styles.wrap} dir={dir}>
       {fontLink}
       <h2 className="sr-only" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden" }}>
-        Client ledger for tracking gold, wages, and jewelry price lists
+        {t("sr_ledger_desc")}
       </h2>
 
       {screen === "list" && (
@@ -655,6 +932,7 @@ function ClientsTab() {
 }
 
 function ListScreen({ customers, ledgers, balancesFor, onOpen, newName, setNewName, newPhone, setNewPhone, addError, onAdd, onManageCategories, onBackup, styles }) {
+  const { t } = useLang();
   const [search, setSearch] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
   const filteredCustomers = search.trim()
@@ -665,15 +943,15 @@ function ListScreen({ customers, ledgers, balancesFor, onOpen, newName, setNewNa
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "1.5rem" }}>
         <div>
-          <div style={{ fontSize: 12, letterSpacing: 0.3, color: "#8B7355", marginBottom: 2 }}>Client ledger</div>
-          <h1 style={{ ...styles.display, fontSize: 28, fontWeight: 600, margin: 0, color: "#F3EEE3" }}>Your clients</h1>
+          <div style={{ fontSize: 12, letterSpacing: 0.3, color: "#8B7355", marginBottom: 2 }}>{t("client_ledger_label")}</div>
+          <h1 style={{ ...styles.display, fontSize: 28, fontWeight: 600, margin: 0, color: "#F3EEE3" }}>{t("your_clients")}</h1>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={onBackup} style={smallBtn}>
-            Backup
+            {t("backup")}
           </button>
           <button onClick={onManageCategories} style={smallBtn}>
-            Categories
+            {t("categories")}
           </button>
         </div>
       </div>
@@ -688,33 +966,33 @@ function ListScreen({ customers, ledgers, balancesFor, onOpen, newName, setNewNa
             marginBottom: "1.5rem",
           }}
         >
-          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 10, color: "#C9A227" }}>Add a client</div>
+          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 10, color: "#C9A227" }}>{t("add_a_client")}</div>
           <input
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            placeholder="Client name"
+            placeholder={t("client_name_ph")}
             style={inputStyle}
             autoFocus
           />
           <input
             value={newPhone}
             onChange={(e) => setNewPhone(e.target.value)}
-            placeholder="Phone (optional)"
+            placeholder={t("phone_optional_ph")}
             style={{ ...inputStyle, marginTop: 8 }}
           />
           {addError && <div style={{ color: "#D4756B", fontSize: 13, marginTop: 6 }}>{addError}</div>}
           <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
             <button onClick={onAdd} style={{ ...primaryBtn, flex: 1 }}>
-              Add client
+              {t("add_client")}
             </button>
             <button onClick={() => setShowAddForm(false)} style={{ ...smallBtn, flex: 1, textAlign: "center" }}>
-              Cancel
+              {t("cancel")}
             </button>
           </div>
         </div>
       ) : (
         <button onClick={() => setShowAddForm(true)} style={{ ...primaryBtn, width: "100%", marginBottom: "1.5rem" }}>
-          + Add new client
+          {t("add_new_client")}
         </button>
       )}
 
@@ -722,18 +1000,18 @@ function ListScreen({ customers, ledgers, balancesFor, onOpen, newName, setNewNa
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search clients"
+          placeholder={t("search_clients_ph")}
           style={{ ...inputStyle, marginBottom: 12 }}
         />
       )}
 
       {customers.length === 0 ? (
         <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "2rem 0" }}>
-          No clients yet. Add your first one above.
+          {t("no_clients_yet")}
         </div>
       ) : filteredCustomers.length === 0 ? (
         <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "2rem 0" }}>
-          No clients match "{search.trim()}".
+          {t("no_clients_match", { q: search.trim() })}
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -767,10 +1045,10 @@ function ListScreen({ customers, ledgers, balancesFor, onOpen, newName, setNewNa
                   ) : (
                     <>
                       <div style={{ fontSize: 13, fontWeight: 500, color: bal.gold > 0 ? "#D4756B" : bal.gold < 0 ? "#7FAE7A" : "#8B7355" }}>
-                        Gold {grams(bal.gold)}
+                        {t("gold_amount", { v: grams(bal.gold) })}
                       </div>
                       <div style={{ fontSize: 13, fontWeight: 500, color: bal.wages > 0 ? "#D4756B" : bal.wages < 0 ? "#7FAE7A" : "#8B7355" }}>
-                        Wages {money(bal.wages)}
+                        {t("wages_amount", { v: money(bal.wages) })}
                       </div>
                     </>
                   )}
@@ -785,6 +1063,7 @@ function ListScreen({ customers, ledgers, balancesFor, onOpen, newName, setNewNa
 }
 
 function BackupScreen({ onBack, buildBackupData, restoreFromBackup, listDailyBackups, getDailyBackup, styles }) {
+  const { t } = useLang();
   const [exportText, setExportText] = useState("");
   const [exportLoading, setExportLoading] = useState(true);
   const [copyStatus, setCopyStatus] = useState("");
@@ -853,19 +1132,19 @@ function BackupScreen({ onBack, buildBackupData, restoreFromBackup, listDailyBac
       const text = await getDailyBackup(dateStr);
       if (!text) throw new Error("missing");
       await restoreFromBackup(text);
-      setDailyStatus("Restored " + dateStr + " successfully");
+      setDailyStatus(t("restored_success", { d: dateStr }));
       setConfirmingDaily(null);
     } catch (e) {
-      setDailyStatus("Couldn't restore that backup — nothing was changed");
+      setDailyStatus(t("restore_failed_daily"));
     }
   }
 
   async function handleCopy() {
     try {
       await navigator.clipboard.writeText(exportText);
-      setCopyStatus("Copied");
+      setCopyStatus(t("copied"));
     } catch (e) {
-      setCopyStatus("Couldn't copy — select and copy manually");
+      setCopyStatus(t("copy_failed"));
     }
     setTimeout(() => setCopyStatus(""), 2500);
   }
@@ -874,28 +1153,28 @@ function BackupScreen({ onBack, buildBackupData, restoreFromBackup, listDailyBac
     setImportStatus("");
     try {
       await restoreFromBackup(importText);
-      setImportStatus("Restored successfully");
+      setImportStatus(t("restored_successfully"));
       setConfirmingImport(false);
     } catch (e) {
-      setImportStatus("That didn't look like a valid backup — nothing was changed");
+      setImportStatus(t("restore_failed_invalid"));
     }
   }
 
   return (
     <div>
       <button onClick={onBack} style={backBtn}>
-        All clients
+        {t("all_clients")}
       </button>
 
-      <h1 style={{ ...styles.display, fontSize: 24, fontWeight: 600, margin: "0 0 1rem", color: "#F3EEE3" }}>Backup & restore</h1>
+      <h1 style={{ ...styles.display, fontSize: 24, fontWeight: 600, margin: "0 0 1rem", color: "#F3EEE3" }}>{t("backup_restore")}</h1>
 
       <div style={{ background: "#232019", border: "1px solid #3A3527", borderRadius: 12, padding: "1rem", marginBottom: "1.25rem" }}>
-        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8, color: "#C9A227" }}>Export your data</div>
+        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8, color: "#C9A227" }}>{t("export_your_data")}</div>
         <div style={{ fontSize: 13, color: "#8B7355", marginBottom: 10 }}>
-          Copy this and save it somewhere safe (Notes, email to yourself, etc.). Paste it back in below any time you need to restore it — for example, after I send you an updated version of this app.
+          {t("export_desc")}
         </div>
         {exportLoading ? (
-          <div style={{ color: "#8B7355", fontSize: 13 }}>Preparing backup…</div>
+          <div style={{ color: "#8B7355", fontSize: 13 }}>{t("preparing_backup")}</div>
         ) : (
           <>
             <textarea
@@ -905,38 +1184,38 @@ function BackupScreen({ onBack, buildBackupData, restoreFromBackup, listDailyBac
               style={{ ...inputStyle, height: 160, fontFamily: "monospace", fontSize: 12, resize: "vertical" }}
             />
             <button onClick={handleCopy} style={{ ...primaryBtn, marginTop: 10, width: "100%" }}>
-              {copyStatus || "Copy backup"}
+              {copyStatus || t("copy_backup")}
             </button>
             <button onClick={handleDownload} style={{ ...smallBtn, marginTop: 8, width: "100%", textAlign: "center" }}>
-              Save to file
+              {t("save_to_file")}
             </button>
           </>
         )}
       </div>
 
       <div style={{ background: "#232019", border: "1px solid #3A3527", borderRadius: 12, padding: "1rem", marginBottom: "1.25rem" }}>
-        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8, color: "#C9A227" }}>Daily backups</div>
+        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8, color: "#C9A227" }}>{t("daily_backups")}</div>
         <div style={{ fontSize: 13, color: "#8B7355", marginBottom: 10 }}>
-          A snapshot is saved automatically once a day when you open the app. If something ever goes wrong, restore the most recent good one below.
+          {t("daily_backups_desc")}
         </div>
         {dailyLoading ? (
-          <div style={{ color: "#8B7355", fontSize: 13 }}>Loading…</div>
+          <div style={{ color: "#8B7355", fontSize: 13 }}>{t("loading")}</div>
         ) : dailyBackups.length === 0 ? (
-          <div style={{ color: "#8B7355", fontSize: 13 }}>No automatic backups yet — one will be created next time you open the app.</div>
+          <div style={{ color: "#8B7355", fontSize: 13 }}>{t("no_daily_backups")}</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {dailyBackups.map((dateStr) =>
               confirmingDaily === dateStr ? (
                 <div key={dateStr} style={{ background: "#1C1913", border: "1px solid #D4756B", borderRadius: 8, padding: "0.6rem 0.75rem" }}>
                   <div style={{ fontSize: 13, color: "#D4756B", marginBottom: 8 }}>
-                    Restore the {dateStr} backup? This overwrites everything currently in the app.
+                    {t("restore_daily_confirm", { d: dateStr })}
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
                     <button onClick={() => handleRestoreDaily(dateStr)} style={{ ...primaryBtn, background: "#D4756B", color: "#1C1913", flex: 1 }}>
-                      Yes, restore
+                      {t("yes_restore")}
                     </button>
                     <button onClick={() => setConfirmingDaily(null)} style={{ ...smallBtn, flex: 1, textAlign: "center" }}>
-                      Cancel
+                      {t("cancel")}
                     </button>
                   </div>
                 </div>
@@ -955,7 +1234,7 @@ function BackupScreen({ onBack, buildBackupData, restoreFromBackup, listDailyBac
                 >
                   <div style={{ fontSize: 14, color: "#F3EEE3" }}>{dateStr}</div>
                   <button onClick={() => setConfirmingDaily(dateStr)} style={smallBtn}>
-                    Restore
+                    {t("restore")}
                   </button>
                 </div>
               )
@@ -970,9 +1249,9 @@ function BackupScreen({ onBack, buildBackupData, restoreFromBackup, listDailyBac
       </div>
 
       <div style={{ background: "#232019", border: "1px solid #3A3527", borderRadius: 12, padding: "1rem" }}>
-        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8, color: "#C9A227" }}>Restore from backup</div>
+        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8, color: "#C9A227" }}>{t("restore_from_backup")}</div>
         <div style={{ fontSize: 13, color: "#8B7355", marginBottom: 10 }}>
-          Paste a previously copied backup here, or upload a saved backup file. This replaces everything currently in the app.
+          {t("restore_desc")}
         </div>
         <input
           ref={fileInputRef}
@@ -982,12 +1261,12 @@ function BackupScreen({ onBack, buildBackupData, restoreFromBackup, listDailyBac
           style={{ display: "none" }}
         />
         <button onClick={handleUploadClick} style={{ ...smallBtn, width: "100%", textAlign: "center", marginBottom: 10 }}>
-          Upload backup file
+          {t("upload_backup_file")}
         </button>
         <textarea
           value={importText}
           onChange={(e) => setImportText(e.target.value)}
-          placeholder="Paste backup text here"
+          placeholder={t("paste_backup_ph")}
           style={{ ...inputStyle, height: 140, fontFamily: "monospace", fontSize: 12, resize: "vertical" }}
         />
         {importStatus && (
@@ -998,14 +1277,14 @@ function BackupScreen({ onBack, buildBackupData, restoreFromBackup, listDailyBac
         {confirmingImport ? (
           <div style={{ marginTop: 10 }}>
             <div style={{ fontSize: 13, color: "#D4756B", marginBottom: 8 }}>
-              This will overwrite all current clients and entries. Continue?
+              {t("overwrite_confirm")}
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={handleRestore} style={{ ...primaryBtn, background: "#D4756B", color: "#1C1913", flex: 1 }}>
-                Yes, restore
+                {t("yes_restore")}
               </button>
               <button onClick={() => setConfirmingImport(false)} style={{ ...smallBtn, flex: 1, textAlign: "center" }}>
-                Cancel
+                {t("cancel")}
               </button>
             </div>
           </div>
@@ -1015,7 +1294,7 @@ function BackupScreen({ onBack, buildBackupData, restoreFromBackup, listDailyBac
             disabled={!importText.trim()}
             style={{ ...primaryBtn, marginTop: 10, width: "100%", opacity: importText.trim() ? 1 : 0.5 }}
           >
-            Restore this backup
+            {t("restore_this_backup")}
           </button>
         )}
       </div>
@@ -1040,18 +1319,19 @@ function CategoriesScreen({
   onSaveEdit,
   styles,
 }) {
+  const { t } = useLang();
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   return (
     <div>
       <button onClick={onBack} style={backBtn}>
-        All clients
+        {t("all_clients")}
       </button>
 
       <h1 style={{ ...styles.display, fontSize: 26, fontWeight: 600, margin: "0 0 1rem", color: "#F3EEE3" }}>
-        Jewelry categories
+        {t("jewelry_categories")}
       </h1>
       <div style={{ fontSize: 13, color: "#8B7355", marginBottom: 16 }}>
-        Add the types of jewelry you sell here. You'll set a wage price for each one, per client, from that client's page.
+        {t("categories_desc")}
       </div>
 
       <div
@@ -1067,11 +1347,11 @@ function CategoriesScreen({
           <input
             value={newCategory}
             onChange={(e) => setNewCategory(e.target.value)}
-            placeholder="e.g. Gold ring, Chain, Bracelet"
+            placeholder={t("category_ph")}
             style={{ ...inputStyle, flex: 1 }}
           />
           <button onClick={onAdd} style={primaryBtn}>
-            Add
+            {t("add")}
           </button>
         </div>
         {categoryError && <div style={{ color: "#D4756B", fontSize: 13, marginTop: 6 }}>{categoryError}</div>}
@@ -1079,7 +1359,7 @@ function CategoriesScreen({
 
       {categories.length === 0 ? (
         <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "2rem 0" }}>
-          No categories yet. Add your first one above.
+          {t("no_categories_yet")}
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -1108,10 +1388,10 @@ function CategoriesScreen({
                     )}
                     <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                       <button onClick={onSaveEdit} style={{ ...primaryBtn, flex: 1 }}>
-                        Save
+                        {t("save")}
                       </button>
                       <button onClick={onCancelEdit} style={{ ...smallBtn, flex: 1, textAlign: "center" }}>
-                        Cancel
+                        {t("cancel")}
                       </button>
                     </div>
                   </div>
@@ -1120,7 +1400,7 @@ function CategoriesScreen({
                     <div style={{ fontSize: 14 }}>{cat.name}</div>
                     {confirmDeleteId === cat.id ? (
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <span style={{ fontSize: 12, color: "#D4756B" }}>Delete?</span>
+                        <span style={{ fontSize: 12, color: "#D4756B" }}>{t("delete_q")}</span>
                         <button
                           onClick={() => {
                             onDelete(cat.id);
@@ -1128,13 +1408,13 @@ function CategoriesScreen({
                           }}
                           style={{ background: "#D4756B", border: "none", borderRadius: 6, color: "#1C1913", cursor: "pointer", padding: "4px 10px", fontSize: 13, fontWeight: 500 }}
                         >
-                          Yes
+                          {t("yes")}
                         </button>
                         <button
                           onClick={() => setConfirmDeleteId(null)}
                           style={{ background: "#232019", border: "1px solid #3A3527", borderRadius: 6, color: "#8B7355", cursor: "pointer", padding: "4px 10px", fontSize: 13 }}
                         >
-                          Cancel
+                          {t("cancel")}
                         </button>
                       </div>
                     ) : (
@@ -1143,13 +1423,13 @@ function CategoriesScreen({
                           onClick={() => onStartEdit(cat)}
                           style={{ background: "#232019", border: "1px solid #3A3527", borderRadius: 6, color: "#C9A227", cursor: "pointer", padding: "4px 10px", fontSize: 13 }}
                         >
-                          Edit
+                          {t("edit")}
                         </button>
                         <button
                           onClick={() => setConfirmDeleteId(cat.id)}
                           style={{ background: "#232019", border: "1px solid #3A3527", borderRadius: 6, color: "#D4756B", cursor: "pointer", padding: "4px 10px", fontSize: 13 }}
                         >
-                          Delete
+                          {t("delete")}
                         </button>
                       </div>
                     )}
@@ -1187,6 +1467,7 @@ function DetailScreen({
   onDeleteBook,
   styles,
 }) {
+  const { t } = useLang();
   const [nameActionsOpen, setNameActionsOpen] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(customer.name);
@@ -1235,7 +1516,7 @@ function DetailScreen({
   function saveName() {
     const trimmed = nameDraft.trim();
     if (!trimmed) {
-      setNameError("Enter a client name");
+      setNameError(t("enter_client_name"));
       return;
     }
     onRenameCustomer(trimmed);
@@ -1269,7 +1550,7 @@ function DetailScreen({
   return (
     <div>
       <button onClick={onBack} style={backBtn}>
-        All clients
+        {t("all_clients")}
       </button>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: "1.25rem" }}>
@@ -1285,10 +1566,10 @@ function DetailScreen({
               {nameError && <div style={{ color: "#D4756B", fontSize: 13, marginTop: 6 }}>{nameError}</div>}
               <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                 <button onClick={saveName} style={{ ...primaryBtn, padding: "0.4rem 0.9rem" }}>
-                  Save
+                  {t("save")}
                 </button>
                 <button onClick={cancelEditName} style={smallBtn}>
-                  Cancel
+                  {t("cancel")}
                 </button>
               </div>
             </div>
@@ -1299,7 +1580,7 @@ function DetailScreen({
               </div>
               {nameActionsOpen && (
                 <button onClick={startEditName} style={{ ...smallBtn, marginTop: 8 }}>
-                  Edit
+                  {t("edit")}
                 </button>
               )}
             </div>
@@ -1310,53 +1591,53 @@ function DetailScreen({
         <div style={{ display: "flex", gap: 8 }}>
           <button
             onClick={toggleContact}
-            aria-label="Contact info"
+            aria-label={t("contact_info")}
             style={{ ...smallBtn, width: 38, height: 38, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}
           >
             <CardIcon />
           </button>
           <button onClick={() => setTab("prices")} style={smallBtn}>
-            Price list
+            {t("price_list")}
           </button>
         </div>
       </div>
 
       {contactOpen && (
         <div style={{ background: "#232019", border: "1px solid #3A3527", borderRadius: 10, padding: "0.85rem", marginBottom: "1.25rem" }}>
-          <div style={{ fontSize: 13, color: "#8B7355", marginBottom: 8 }}>Contact info</div>
+          <div style={{ fontSize: 13, color: "#8B7355", marginBottom: 8 }}>{t("contact_info")}</div>
           <input
             value={phoneDraft}
             onChange={(e) => setPhoneDraft(e.target.value)}
-            placeholder="Phone number"
+            placeholder={t("phone_number_ph")}
             style={inputStyle}
           />
           <input
             value={addressDraft}
             onChange={(e) => setAddressDraft(e.target.value)}
-            placeholder="Address"
+            placeholder={t("address_ph")}
             style={{ ...inputStyle, marginTop: 8 }}
           />
           <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
             <button onClick={saveContact} style={{ ...primaryBtn, flex: 1 }}>
-              Save
+              {t("save")}
             </button>
             <button onClick={cancelContact} style={{ ...smallBtn, flex: 1, textAlign: "center" }}>
-              Cancel
+              {t("cancel")}
             </button>
           </div>
         </div>
       )}
 
       <div style={{ display: "flex", gap: 10, marginBottom: "1.25rem" }}>
-        <BalanceCard label="Gold" value={grams(balances.gold)} tone={balances.gold} />
-        <BalanceCard label="Wages" value={money(balances.wages)} tone={balances.wages} />
+        <BalanceCard label={t("tab_gold")} value={grams(balances.gold)} tone={balances.gold} />
+        <BalanceCard label={t("tab_wages")} value={money(balances.wages)} tone={balances.wages} />
       </div>
 
       <div style={{ display: "flex", gap: 6, marginBottom: "1.25rem", borderBottom: "1px solid #3A3527" }}>
         {[
-          { id: "gold", label: "Gold" },
-          { id: "wages", label: "Wages" },
-          { id: "review", label: "Review" },
+          { id: "gold", label: t("tab_gold") },
+          { id: "wages", label: t("tab_wages") },
+          { id: "review", label: t("tab_review") },
         ].map((t) => (
           <button
             key={t.id}
@@ -1391,10 +1672,10 @@ function DetailScreen({
             <BookBalanceLine entries={goldEntriesForBook} formatAmount={grams} />
           )}
           <LedgerSection
-            title="Gold"
-            takeLabel="Took gold"
-            returnLabel="Gave back"
-            emptyText="No gold entries yet."
+            title={t("tab_gold")}
+            takeLabel={t("took_gold")}
+            returnLabel={t("gave_back")}
+            emptyText={t("no_gold_entries")}
             entries={goldEntriesForBook}
             kind="gold"
             formatAmount={grams}
@@ -1421,10 +1702,10 @@ function DetailScreen({
             <BookBalanceLine entries={wagesEntriesForBook} formatAmount={money} />
           )}
           <LedgerSection
-            title="Wages"
-            takeLabel="Took wages"
-            returnLabel="Paid back"
-            emptyText="No wage entries yet."
+            title={t("tab_wages")}
+            takeLabel={t("took_wages")}
+            returnLabel={t("paid_back_label")}
+            emptyText={t("no_wage_entries")}
             entries={wagesEntriesForBook}
             kind="wages"
             formatAmount={money}
@@ -1452,20 +1733,21 @@ function DetailScreen({
 }
 
 function RemoveClientControl({ customerName, onConfirm }) {
+  const { t } = useLang();
   const [confirming, setConfirming] = useState(false);
 
   if (confirming) {
     return (
       <div style={{ marginTop: 28 }}>
         <div style={{ fontSize: 13, color: "#D4756B", marginBottom: 8 }}>
-          Remove {customerName} and all their records? This can't be undone.
+          {t("remove_client_confirm", { name: customerName })}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={onConfirm} style={{ ...primaryBtn, background: "#D4756B", color: "#1C1913" }}>
-            Yes, remove
+            {t("yes_remove")}
           </button>
           <button onClick={() => setConfirming(false)} style={smallBtn}>
-            Cancel
+            {t("cancel")}
           </button>
         </div>
       </div>
@@ -1477,7 +1759,7 @@ function RemoveClientControl({ customerName, onConfirm }) {
       onClick={() => setConfirming(true)}
       style={{ marginTop: 28, background: "transparent", border: "none", color: "#8B7355", fontSize: 13, cursor: "pointer", padding: 0 }}
     >
-      Remove this client
+      {t("remove_this_client")}
     </button>
   );
 }
@@ -1492,11 +1774,12 @@ function CardIcon() {
   );
 }
 
-function bookLabel(book) {
-  return book === "current" ? "Current" : book;
+function bookLabel(book, t) {
+  return book === "current" ? t("current_book") : book;
 }
 
 function BookSelector({ books, active, onSelect, onAddBook, onDeleteBook }) {
+  const { t } = useLang();
   const [menuOpen, setMenuOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [newBookName, setNewBookName] = useState("");
@@ -1514,11 +1797,11 @@ function BookSelector({ books, active, onSelect, onAddBook, onDeleteBook }) {
   function submitAddBook() {
     const name = newBookName.trim();
     if (!name) {
-      setAddError("Enter a book name");
+      setAddError(t("enter_book_name"));
       return;
     }
     if (name === "current" || books.includes(name)) {
-      setAddError("That book already exists");
+      setAddError(t("book_already_exists"));
       return;
     }
     onAddBook(name);
@@ -1549,13 +1832,13 @@ function BookSelector({ books, active, onSelect, onAddBook, onDeleteBook }) {
                 cursor: "pointer",
               }}
             >
-              {bookLabel(b)}
+              {bookLabel(b, t)}
             </button>
           ))}
         </div>
         <button
           onClick={() => (menuOpen ? closeAll() : setMenuOpen(true))}
-          aria-label="Book options"
+          aria-label={t("book_options")}
           style={{
             background: "transparent",
             border: "none",
@@ -1587,7 +1870,7 @@ function BookSelector({ books, active, onSelect, onAddBook, onDeleteBook }) {
                 onClick={() => setAdding(true)}
                 style={{ ...smallBtn, textAlign: "left" }}
               >
-                Add new book
+                {t("add_new_book")}
               </button>
               <button
                 onClick={() => setConfirmingDelete(true)}
@@ -1599,7 +1882,7 @@ function BookSelector({ books, active, onSelect, onAddBook, onDeleteBook }) {
                   opacity: active === "current" ? 0.6 : 1,
                 }}
               >
-                Delete "{bookLabel(active)}" book
+                {t("delete_book_named", { b: bookLabel(active, t) })}
               </button>
             </div>
           )}
@@ -1607,22 +1890,22 @@ function BookSelector({ books, active, onSelect, onAddBook, onDeleteBook }) {
           {adding && (
             <div>
               <div style={{ fontSize: 13, color: "#8B7355", marginBottom: 8 }}>
-                e.g. 2027
+                {t("book_hint")}
               </div>
               <input
                 value={newBookName}
                 onChange={(e) => setNewBookName(e.target.value)}
-                placeholder="Book name"
+                placeholder={t("book_name_ph")}
                 style={inputStyle}
                 autoFocus
               />
               {addError && <div style={{ color: "#D4756B", fontSize: 13, marginTop: 6 }}>{addError}</div>}
               <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                 <button onClick={submitAddBook} style={{ ...primaryBtn, flex: 1 }}>
-                  Add book
+                  {t("add_book")}
                 </button>
                 <button onClick={closeAll} style={{ ...smallBtn, flex: 1, textAlign: "center" }}>
-                  Cancel
+                  {t("cancel")}
                 </button>
               </div>
             </div>
@@ -1631,14 +1914,14 @@ function BookSelector({ books, active, onSelect, onAddBook, onDeleteBook }) {
           {confirmingDelete && (
             <div>
               <div style={{ fontSize: 13, color: "#D4756B", marginBottom: 8 }}>
-                Delete the "{bookLabel(active)}" book? All its entries will be permanently removed.
+                {t("delete_book_confirm", { b: bookLabel(active, t) })}
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={confirmDelete} style={{ ...primaryBtn, background: "#D4756B", color: "#1C1913", flex: 1 }}>
-                  Yes, delete
+                  {t("yes_delete")}
                 </button>
                 <button onClick={closeAll} style={{ ...smallBtn, flex: 1, textAlign: "center" }}>
-                  Cancel
+                  {t("cancel")}
                 </button>
               </div>
             </div>
@@ -1650,16 +1933,18 @@ function BookSelector({ books, active, onSelect, onAddBook, onDeleteBook }) {
 }
 
 function BookBalanceLine({ entries, formatAmount }) {
+  const { t } = useLang();
   const total = (entries || []).reduce((s, e) => s + e.amount, 0);
   const color = total > 0 ? "#D4756B" : total < 0 ? "#7FAE7A" : "#8B7355";
   return (
     <div style={{ fontSize: 12.5, color: "#8B7355", marginBottom: 10 }}>
-      Balance for this book: <span style={{ color, fontWeight: 500 }}>{formatAmount(total)}</span>
+      {t("balance_for_book", { v: "" })}<span style={{ color, fontWeight: 500 }}>{formatAmount(total)}</span>
     </div>
   );
 }
 
 function BalanceCard({ label, value, tone }) {
+  const { t } = useLang();
   const color = tone > 0 ? "#D4756B" : tone < 0 ? "#7FAE7A" : "#F3EEE3";
   return (
     <div
@@ -1675,7 +1960,7 @@ function BalanceCard({ label, value, tone }) {
       <div style={{ fontSize: 12, color: "#8B7355", marginBottom: 4 }}>{label}</div>
       <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, fontWeight: 600, color }}>{value}</div>
       <div style={{ fontSize: 11, color: "#8B7355", marginTop: 2 }}>
-        {tone > 0 ? "owed to you" : tone < 0 ? "owed to client" : "settled"}
+        {tone > 0 ? t("owed_to_you") : tone < 0 ? t("owed_to_client") : t("settled")}
       </div>
     </div>
   );
@@ -1716,16 +2001,17 @@ const bigActivityBtn = {
 };
 
 function ReviewTabContent({ goldEntries, wageEntries }) {
+  const { t } = useLang();
   const [view, setView] = useState(null); // null | "activity" | "custom"
 
   if (!view) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <button onClick={() => setView("activity")} style={bigActivityBtn}>
-          Activity
+          {t("activity")}
         </button>
         <button onClick={() => setView("custom")} style={bigActivityBtn}>
-          Custom Activity
+          {t("custom_activity")}
         </button>
       </div>
     );
@@ -1734,7 +2020,7 @@ function ReviewTabContent({ goldEntries, wageEntries }) {
   return (
     <div>
       <button onClick={() => setView(null)} style={backBtn}>
-        Back
+        {t("back")}
       </button>
       {view === "activity" && <ReviewSection goldEntries={goldEntries} wageEntries={wageEntries} />}
       {view === "custom" && <CustomActivitySection goldEntries={goldEntries} wageEntries={wageEntries} />}
@@ -1743,6 +2029,7 @@ function ReviewTabContent({ goldEntries, wageEntries }) {
 }
 
 function CustomActivitySection({ goldEntries, wageEntries }) {
+  const { t } = useLang();
   const [fromDate, setFromDate] = useState(todayStr());
   const [toDate, setToDate] = useState(todayStr());
 
@@ -1759,51 +2046,53 @@ function CustomActivitySection({ goldEntries, wageEntries }) {
   return (
     <div>
       <div style={{ fontSize: 13, color: "#8B7355", marginBottom: 14 }}>
-        Pick a date range to see how much gold and wages were taken and paid back in that period.
+        {t("custom_activity_desc")}
       </div>
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 11, color: "#8B7355", marginBottom: 4 }}>From</div>
+          <div style={{ fontSize: 11, color: "#8B7355", marginBottom: 4 }}>{t("from_label")}</div>
           <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={inputStyle} />
         </div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 11, color: "#8B7355", marginBottom: 4 }}>To</div>
+          <div style={{ fontSize: 11, color: "#8B7355", marginBottom: 4 }}>{t("to_label")}</div>
           <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={inputStyle} />
         </div>
       </div>
 
-      <div style={{ fontSize: 15, fontWeight: 500, color: "#F3EEE3", marginBottom: 8 }}>Gold</div>
+      <div style={{ fontSize: 15, fontWeight: 500, color: "#F3EEE3", marginBottom: 8 }}>{t("tab_gold")}</div>
       <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
-        <CustomStatCard label="Taken" value={grams(goldTotals.taken)} color="#D4756B" />
-        <CustomStatCard label="Paid back" value={grams(goldTotals.paid)} color="#7FAE7A" />
+        <CustomStatCard label={t("taken")} value={grams(goldTotals.taken)} color="#D4756B" />
+        <CustomStatCard label={t("paid_back_stat")} value={grams(goldTotals.paid)} color="#7FAE7A" />
       </div>
 
-      <div style={{ fontSize: 15, fontWeight: 500, color: "#F3EEE3", marginBottom: 8 }}>Wages</div>
+      <div style={{ fontSize: 15, fontWeight: 500, color: "#F3EEE3", marginBottom: 8 }}>{t("tab_wages")}</div>
       <div style={{ display: "flex", gap: 10 }}>
-        <CustomStatCard label="Taken" value={money(wageTotals.taken)} color="#D4756B" />
-        <CustomStatCard label="Paid back" value={money(wageTotals.paid)} color="#7FAE7A" />
+        <CustomStatCard label={t("taken")} value={money(wageTotals.taken)} color="#D4756B" />
+        <CustomStatCard label={t("paid_back_stat")} value={money(wageTotals.paid)} color="#7FAE7A" />
       </div>
     </div>
   );
 }
 
 function ReviewSection({ goldEntries, wageEntries }) {
+  const { t } = useLang();
   const goldRows = buildMonthlyReview(goldEntries);
   const wageRows = buildMonthlyReview(wageEntries);
 
   return (
     <div>
       <div style={{ fontSize: 13, color: "#8B7355", marginBottom: 14 }}>
-        For each month, what was still owed coming in vs. what got paid back by month's end. Repayment is expected within 4 weeks, so anything left owed here is running late.
+        {t("review_desc")}
       </div>
-      <ReviewTable title="Gold" rows={goldRows} formatAmount={grams} emptyText="No gold history yet." />
+      <ReviewTable title={t("tab_gold")} rows={goldRows} formatAmount={grams} emptyText={t("no_gold_history")} />
       <div style={{ height: 20 }} />
-      <ReviewTable title="Wages" rows={wageRows} formatAmount={money} emptyText="No wage history yet." />
+      <ReviewTable title={t("tab_wages")} rows={wageRows} formatAmount={money} emptyText={t("no_wage_history")} />
     </div>
   );
 }
 
 function ReviewTable({ title, rows, formatAmount, emptyText }) {
+  const { t } = useLang();
   return (
     <div>
       <div style={{ fontSize: 15, fontWeight: 500, color: "#F3EEE3", marginBottom: 8 }}>{title}</div>
@@ -1824,24 +2113,24 @@ function ReviewTable({ title, rows, formatAmount, emptyText }) {
               <div style={{ fontSize: 13, fontWeight: 500, color: "#F3EEE3", marginBottom: 6 }}>{monthLabel(r.key)}</div>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <div>
-                  <div style={{ fontSize: 11, color: "#8B7355" }}>Owed at start (1st)</div>
+                  <div style={{ fontSize: 11, color: "#8B7355" }}>{t("owed_at_start")}</div>
                   <div style={{ fontSize: 14, fontWeight: 500, color: r.owedAtStart > 0 ? "#D4756B" : "#8B7355" }}>
                     {formatAmount(r.owedAtStart)}
                   </div>
                 </div>
                 <div style={{ textAlign: "right" }}>
-                  <div style={{ fontSize: 11, color: "#8B7355" }}>Paid back (by end)</div>
+                  <div style={{ fontSize: 11, color: "#8B7355" }}>{t("paid_back_by_end")}</div>
                   <div style={{ fontSize: 14, fontWeight: 500, color: "#7FAE7A" }}>{formatAmount(r.paidThisMonth)}</div>
                 </div>
               </div>
               {r.late && (
                 <div style={{ fontSize: 12, color: "#D4756B", marginTop: 6 }}>
-                  Late — {formatAmount(r.owedAtStart - r.paidThisMonth)} still outstanding from this period
+                  {t("late_outstanding", { v: formatAmount(r.owedAtStart - r.paidThisMonth) })}
                 </div>
               )}
               {r.takenLaterThisMonth > 0 && (
                 <div style={{ fontSize: 12, color: "#8B7355", marginTop: 6 }}>
-                  +{formatAmount(r.takenLaterThisMonth)} taken later in the month (not counted above)
+                  {t("taken_later", { v: formatAmount(r.takenLaterThisMonth) })}
                 </div>
               )}
             </div>
@@ -1853,6 +2142,7 @@ function ReviewTable({ title, rows, formatAmount, emptyText }) {
 }
 
 function PriceListSection({ categories, prices, onChange, onManageCategories }) {
+  const { t } = useLang();
   const [drafts, setDrafts] = useState(() => {
     const d = {};
     categories.forEach((c) => {
@@ -1883,10 +2173,10 @@ function PriceListSection({ categories, prices, onChange, onManageCategories }) 
   if (categories.length === 0) {
     return (
       <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "1.5rem 0" }}>
-        No jewelry categories yet.
+        {t("no_jewelry_categories")}
         <div style={{ marginTop: 10 }}>
           <button onClick={onManageCategories} style={smallBtn}>
-            Add categories
+            {t("add_categories")}
           </button>
         </div>
       </div>
@@ -1896,7 +2186,7 @@ function PriceListSection({ categories, prices, onChange, onManageCategories }) 
   return (
     <div>
       <div style={{ fontSize: 13, color: "#8B7355", marginBottom: 10 }}>
-        Set this client's wage price for each category.
+        {t("set_wage_price_desc")}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {categories.map((cat) => (
@@ -1929,13 +2219,14 @@ function PriceListSection({ categories, prices, onChange, onManageCategories }) 
         ))}
       </div>
       <button onClick={onManageCategories} style={{ ...smallBtn, marginTop: 12 }}>
-        Edit categories
+        {t("edit_categories")}
       </button>
     </div>
   );
 }
 
 function LedgerSection({ title, takeLabel, returnLabel, emptyText, entries, kind, formatAmount, onAdd, onEdit, onDelete, entryForm, setEntryForm, submitEntry }) {
+  const { t } = useLang();
   const isOpen = entryForm.open === kind;
   const isEditing = isOpen && !!entryForm.editId;
   const [expandedId, setExpandedId] = useState(null);
@@ -1967,7 +2258,7 @@ function LedgerSection({ title, takeLabel, returnLabel, emptyText, entries, kind
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
         <div style={{ fontSize: 15, fontWeight: 500, color: "#F3EEE3" }}>{title}</div>
         <button onClick={onAdd} style={smallBtn}>
-          Add
+          {t("add")}
         </button>
       </div>
 
@@ -1991,7 +2282,7 @@ function LedgerSection({ title, takeLabel, returnLabel, emptyText, entries, kind
             <input
               value={entryForm.amount}
               onChange={(e) => setEntryForm((f) => ({ ...f, amount: toEnglishDigits(e.target.value) }))}
-              placeholder={kind === "gold" ? "Grams" : "Amount"}
+              placeholder={kind === "gold" ? t("grams_ph") : t("amount_ph")}
               inputMode="decimal"
               style={{ ...inputStyle, flex: 1 }}
             />
@@ -2005,13 +2296,13 @@ function LedgerSection({ title, takeLabel, returnLabel, emptyText, entries, kind
           <input
             value={entryForm.note}
             onChange={(e) => setEntryForm((f) => ({ ...f, note: e.target.value }))}
-            placeholder="Note (optional)"
+            placeholder={t("note_optional_ph")}
             style={{ ...inputStyle, marginTop: 8 }}
           />
           {entryForm.error && <div style={{ color: "#D4756B", fontSize: 13, marginTop: 6 }}>{entryForm.error}</div>}
           <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
             <button onClick={submitEntry} style={{ ...primaryBtn, flex: 1 }}>
-              {isEditing ? "Update" : "Save"}
+              {isEditing ? t("update") : t("save")}
             </button>
             <button
               onClick={() => {
@@ -2020,14 +2311,14 @@ function LedgerSection({ title, takeLabel, returnLabel, emptyText, entries, kind
               }}
               style={{ ...smallBtn, flex: 1, textAlign: "center" }}
             >
-              Cancel
+              {t("cancel")}
             </button>
           </div>
           {isEditing && (
             <div style={{ marginTop: 10 }}>
               {formConfirmDelete ? (
                 <div>
-                  <div style={{ fontSize: 13, color: "#D4756B", marginBottom: 6 }}>Delete this entry for good?</div>
+                  <div style={{ fontSize: 13, color: "#D4756B", marginBottom: 6 }}>{t("delete_entry_confirm")}</div>
                   <div style={{ display: "flex", gap: 8 }}>
                     <button
                       onClick={() => {
@@ -2037,10 +2328,10 @@ function LedgerSection({ title, takeLabel, returnLabel, emptyText, entries, kind
                       }}
                       style={{ ...primaryBtn, flex: 1, background: "#D4756B", color: "#1C1913" }}
                     >
-                      Yes, delete
+                      {t("yes_delete")}
                     </button>
                     <button onClick={() => setFormConfirmDelete(false)} style={{ ...smallBtn, flex: 1, textAlign: "center" }}>
-                      Cancel
+                      {t("cancel")}
                     </button>
                   </div>
                 </div>
@@ -2049,7 +2340,7 @@ function LedgerSection({ title, takeLabel, returnLabel, emptyText, entries, kind
                   onClick={() => setFormConfirmDelete(true)}
                   style={{ background: "transparent", border: "none", color: "#D4756B", fontSize: 13, cursor: "pointer", padding: 0 }}
                 >
-                  Delete this entry
+                  {t("delete_this_entry")}
                 </button>
               )}
             </div>
@@ -2079,7 +2370,7 @@ function LedgerSection({ title, takeLabel, returnLabel, emptyText, entries, kind
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 11, color: "#8B7355" }}>Balance</div>
+                    <div style={{ fontSize: 11, color: "#8B7355" }}>{t("balance")}</div>
                     <div
                       style={{
                         fontSize: 14,
@@ -2108,7 +2399,7 @@ function LedgerSection({ title, takeLabel, returnLabel, emptyText, entries, kind
                   <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #3A3527" }}>
                     {isConfirming ? (
                       <div>
-                        <div style={{ fontSize: 13, color: "#D4756B", marginBottom: 6 }}>Delete this entry for good?</div>
+                        <div style={{ fontSize: 13, color: "#D4756B", marginBottom: 6 }}>{t("delete_entry_confirm")}</div>
                         <div style={{ display: "flex", gap: 8 }}>
                           <button
                             onClick={(ev) => {
@@ -2117,7 +2408,7 @@ function LedgerSection({ title, takeLabel, returnLabel, emptyText, entries, kind
                             }}
                             style={{ background: "#D4756B", border: "none", borderRadius: 6, color: "#1C1913", cursor: "pointer", padding: "6px 12px", fontSize: 13, fontWeight: 500, flex: 1 }}
                           >
-                            Yes, delete
+                            {t("yes_delete")}
                           </button>
                           <button
                             onClick={(ev) => {
@@ -2126,7 +2417,7 @@ function LedgerSection({ title, takeLabel, returnLabel, emptyText, entries, kind
                             }}
                             style={{ ...smallBtn, flex: 1, textAlign: "center" }}
                           >
-                            Cancel
+                            {t("cancel")}
                           </button>
                         </div>
                       </div>
@@ -2139,7 +2430,7 @@ function LedgerSection({ title, takeLabel, returnLabel, emptyText, entries, kind
                           }}
                           style={{ background: "#232019", border: "1px solid #3A3527", borderRadius: 6, color: "#C9A227", cursor: "pointer", padding: "4px 10px", fontSize: 13 }}
                         >
-                          Edit
+                          {t("edit")}
                         </button>
                         <button
                           onClick={(ev) => {
@@ -2148,7 +2439,7 @@ function LedgerSection({ title, takeLabel, returnLabel, emptyText, entries, kind
                           }}
                           style={{ background: "#232019", border: "1px solid #3A3527", borderRadius: 6, color: "#D4756B", cursor: "pointer", padding: "4px 10px", fontSize: 13 }}
                         >
-                          Delete
+                          {t("delete")}
                         </button>
                       </div>
                     )}
@@ -2224,6 +2515,7 @@ const backBtn = {
 };
 
 function PlaceholderTab({ title }) {
+  const { t } = useLang();
   return (
     <div
       style={{
@@ -2238,12 +2530,13 @@ function PlaceholderTab({ title }) {
       <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 600, color: "#F3EEE3", marginBottom: 8 }}>
         {title}
       </div>
-      <div style={{ fontSize: 14 }}>Coming soon.</div>
+      <div style={{ fontSize: 14 }}>{t("coming_soon")}</div>
     </div>
   );
 }
 
 function ReceiptsTab() {
+  const { t } = useLang();
   const [view, setView] = useState(null); // null | "create" | "view-list"
   const [openReceiptId, setOpenReceiptId] = useState(null);
 
@@ -2257,7 +2550,7 @@ function ReceiptsTab() {
           }}
           style={backBtn}
         >
-          &larr; Receipts
+          &larr; {t("receipts")}
         </button>
         <CreateReceiptScreen
           receiptId={openReceiptId}
@@ -2274,7 +2567,7 @@ function ReceiptsTab() {
     return (
       <div>
         <button onClick={() => setView(null)} style={backBtn}>
-          &larr; Receipts
+          &larr; {t("receipts")}
         </button>
         <ViewReceiptsScreen
           onOpenReceipt={(id) => {
@@ -2289,7 +2582,7 @@ function ReceiptsTab() {
   return (
     <div style={{ fontFamily: "'Inter', sans-serif" }}>
       <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 600, color: "#F3EEE3", marginBottom: 16 }}>
-        Receipts
+        {t("receipts")}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <button
@@ -2299,10 +2592,10 @@ function ReceiptsTab() {
           }}
           style={bigHomeBtn}
         >
-          Create Receipt
+          {t("create_receipt")}
         </button>
         <button onClick={() => setView("view-list")} style={bigHomeBtn}>
-          View Receipts
+          {t("view_receipts")}
         </button>
       </div>
     </div>
@@ -2312,6 +2605,7 @@ function ReceiptsTab() {
 // Lists every saved statement/receipt, newest first (by date, then by
 // statement number as a tiebreaker), pulled from the "receipts-list" index.
 function ViewReceiptsScreen({ onOpenReceipt }) {
+  const { t } = useLang();
   const [loading, setLoading] = useState(true);
   const [receipts, setReceipts] = useState([]);
 
@@ -2341,17 +2635,17 @@ function ViewReceiptsScreen({ onOpenReceipt }) {
   }, []);
 
   if (loading) {
-    return <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "2rem 0" }}>Loading…</div>;
+    return <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "2rem 0" }}>{t("loading")}</div>;
   }
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif" }}>
       <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 600, color: "#F3EEE3", marginBottom: 16 }}>
-        Saved Receipts
+        {t("saved_receipts")}
       </div>
       {receipts.length === 0 ? (
         <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "2rem 0" }}>
-          No receipts saved yet.
+          {t("no_receipts_yet")}
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -2374,10 +2668,10 @@ function ViewReceiptsScreen({ onOpenReceipt }) {
             >
               <div>
                 <div style={{ fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 600, color: "#F3EEE3" }}>
-                  {r.clientName || "Unnamed client"}
+                  {r.clientName || t("unnamed_client")}
                 </div>
                 <div style={{ fontSize: 12, color: "#8B7355", marginTop: 2 }}>
-                  No. {r.statementNo || "—"} · {r.date || "no date"}
+                  {t("receipt_no_date", { no: r.statementNo || "—", date: r.date || t("no_date") })}
                   {r.note ? ` · ${r.note}` : ""}
                 </div>
               </div>
@@ -2424,6 +2718,7 @@ function computeMoneyGold21k(moneyAmount, goldPrice) {
 }
 
 function CreateReceiptScreen({ receiptId, onDeleted }) {
+  const { t } = useLang();
   const [loadedId, setLoadedId] = useState(null); // id of the receipt currently loaded, if editing a saved one
   const [statementNo, setStatementNo] = useState("11872");
   const [day, setDay] = useState(() => todayStr().slice(8, 10));
@@ -2457,20 +2752,6 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
       } catch (e) {
         setCategories([]);
       }
-      // For a brand-new statement (not one opened from View Receipts),
-      // show the next number after whichever was last actually saved —
-      // the counter itself only advances once this one is saved, so
-      // closing without saving doesn't burn a number.
-      if (!receiptId) {
-        try {
-          const res = await window.storage.get("statement-counter", false);
-          const last = res ? parseInt(toEnglishDigits(res.value), 10) : NaN;
-          const base = isNaN(last) ? 11871 : last;
-          setStatementNo(String(base + 1));
-        } catch (e) {
-          // keep the default statementNo already in state
-        }
-      }
     })();
   }, []);
 
@@ -2496,7 +2777,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
           setDiscount(data.discount || "");
         }
       } catch (e) {
-        setSaveMessage("Couldn't load that receipt");
+        setSaveMessage(t("couldnt_load_receipt"));
       }
     })();
   }, [receiptId]);
@@ -2551,7 +2832,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
     setItems((prev) => prev.filter((r) => r.id !== id));
   }
   function clearItems() {
-    if (window.confirm("Clear all rows?")) {
+    if (window.confirm(t("clear_rows_confirm"))) {
       setItems(Array.from({ length: 1 }, emptyItemRow));
     }
   }
@@ -2562,7 +2843,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
     setPayments((prev) => prev.filter((r) => r.id !== id));
   }
   function clearPayments() {
-    if (window.confirm("Clear all payment rows?")) {
+    if (window.confirm(t("clear_payments_confirm"))) {
       setPayments(Array.from({ length: 1 }, emptyPaymentRow));
     }
   }
@@ -2574,7 +2855,6 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
     setSaving(true);
     setSaveMessage("");
     try {
-      const isNewStatement = !loadedId;
       const id = loadedId || uid();
       const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 
@@ -2623,28 +2903,11 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
       const indexEntry = { id, statementNo, clientName, date: dateStr, note, savedAt: data.savedAt };
       await window.storage.set("receipts-list", JSON.stringify([indexEntry, ...withoutThis]), false);
 
-      // Advance the shared counter so the next brand-new statement gets a
-      // fresh number — using whichever number this one actually saved
-      // under (respecting a manual edit to the field, if any).
-      if (isNewStatement) {
-        const numeric = parseInt(toEnglishDigits(statementNo), 10);
-        if (!isNaN(numeric)) {
-          try {
-            const counterRes = await window.storage.get("statement-counter", false);
-            const current = counterRes ? parseInt(toEnglishDigits(counterRes.value), 10) : NaN;
-            const newCounter = isNaN(current) ? numeric : Math.max(current, numeric);
-            await window.storage.set("statement-counter", String(newCounter), false);
-          } catch (e) {
-            // best-effort; worst case the next new statement re-offers this number
-          }
-        }
-      }
-
       setLoadedId(id);
       setPosted(newPosted);
-      setSaveMessage(clientId ? "Saved & posted to client" : "Saved (not linked to a client)");
+      setSaveMessage(clientId ? t("saved_posted") : t("saved_unlinked"));
     } catch (e) {
-      setSaveMessage("Save failed");
+      setSaveMessage(t("save_failed"));
     } finally {
       setSaving(false);
       setTimeout(() => setSaveMessage(""), 3000);
@@ -2656,7 +2919,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
   // into a client's ledger — and hands control back to the caller.
   async function deleteStatement() {
     if (!loadedId) return;
-    if (!window.confirm("Delete this receipt? This can't be undone.")) return;
+    if (!window.confirm(t("delete_receipt_confirm"))) return;
     setDeleting(true);
     try {
       if (posted) {
@@ -2681,7 +2944,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
       );
       if (onDeleted) onDeleted();
     } catch (e) {
-      setSaveMessage("Delete failed");
+      setSaveMessage(t("delete_failed"));
       setDeleting(false);
     }
   }
@@ -2828,12 +3091,12 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
             </div>
 
             <div className="title-block">
-              <h1>Statement</h1>
-              <div className="sub">order details</div>
+              <h1>{t("statement")}</h1>
+              <div className="sub">{t("order_details")}</div>
             </div>
 
             <div className="no-block">
-              <div className="lbl">NO.</div>
+              <div className="lbl">{t("no_label")}</div>
               <input className="no-input" value={statementNo} onChange={(e) => setStatementNo(toEnglishDigits(e.target.value))} />
             </div>
           </div>
@@ -2842,7 +3105,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
 
           <div className="meta">
             <div className="meta-row date-row">
-              <label>Date:</label>
+              <label>{t("date_label")}</label>
               <input placeholder="DD" style={{ width: 34 }} value={day} onChange={(e) => setDay(toEnglishDigits(e.target.value))} />
               <span className="sep">/</span>
               <input placeholder="MM" style={{ width: 34 }} value={month} onChange={(e) => setMonth(toEnglishDigits(e.target.value))} />
@@ -2850,16 +3113,16 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
               <input placeholder="YYYY" style={{ width: 56 }} value={year} onChange={(e) => setYear(toEnglishDigits(e.target.value))} />
             </div>
             <div className="meta-row">
-              <label>Note:</label>
+              <label>{t("note_label")}</label>
               <input value={note} onChange={(e) => setNote(e.target.value)} />
             </div>
             <div className="meta-row">
-              <label>Requested from Mr.:</label>
+              <label>{t("requested_from")}</label>
               <div className="client-field">
                 <input
                   type="text"
                   value={clientName}
-                  placeholder="Search client name…"
+                  placeholder={t("search_client_name_ph")}
                   onChange={(e) => {
                     setClientName(e.target.value);
                     setClientId(null);
@@ -2888,22 +3151,22 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                 )}
                 {clientName.trim() ? (
                   <div style={{ fontSize: 10.5, marginTop: 3, color: clientId ? "#7FAE7A" : "#B08A4E" }}>
-                    {clientId ? "Linked to client — totals will post to their book" : "Not linked — pick a name from the list to post totals"}
+                    {clientId ? t("linked_client") : t("not_linked_client")}
                   </div>
                 ) : null}
               </div>
             </div>
           </div>
 
-          <h2 className="section-title">Sales</h2>
+          <h2 className="section-title">{t("sales_section")}</h2>
 
           <table>
             <thead>
               <tr>
-                <th className="col-item" style={{ width: "27%" }}>Category</th>
-                <th style={{ width: "19%" }}>Price</th>
-                <th style={{ width: "22%" }}>Labor</th>
-                <th style={{ width: "22%" }}>Gram</th>
+                <th className="col-item" style={{ width: "27%" }}>{t("category_col")}</th>
+                <th style={{ width: "19%" }}>{t("price_col")}</th>
+                <th style={{ width: "22%" }}>{t("labor_col")}</th>
+                <th style={{ width: "22%" }}>{t("gram_col")}</th>
                 <th style={{ width: "10%" }}></th>
               </tr>
             </thead>
@@ -2912,7 +3175,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                 <tr key={row.id}>
                   <td className="col-item">
                     <select value={row.category} onChange={(e) => updateItem(row.id, "category", e.target.value)}>
-                      <option value="">Select category…</option>
+                      <option value="">{t("select_category_ph")}</option>
                       {categories.map((c) => (
                         <option key={c.id} value={c.name}>{c.name}</option>
                       ))}
@@ -2932,7 +3195,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                       type="button"
                       className="row-del"
                       onClick={() => removeItemRow(row.id)}
-                      title="Delete row"
+                      title={t("delete_row_title")}
                     >
                       &times;
                     </button>
@@ -2942,13 +3205,13 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={2} className="total-label">Total</td>
+                <td colSpan={2} className="total-label">{t("total_label")}</td>
                 <td><input value={totalLabor.toFixed(2)} readOnly /></td>
                 <td><input value={totalGold.toFixed(2)} readOnly /></td>
                 <td></td>
               </tr>
               <tr>
-                <td colSpan={2} className="total-label">Discount</td>
+                <td colSpan={2} className="total-label">{t("discount_label")}</td>
                 <td>
                   <input
                     type="text"
@@ -2961,7 +3224,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                 <td></td>
               </tr>
               <tr className="final-total-row">
-                <td colSpan={2} className="total-label">Total</td>
+                <td colSpan={2} className="total-label">{t("total_label")}</td>
                 <td><input value={netLabor.toFixed(2)} readOnly /></td>
                 <td></td>
                 <td></td>
@@ -2971,22 +3234,22 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
 
           <div className="controls">
             <div>
-              <button className="rbtn" onClick={addItemRow}>+ Add row</button>
-              <button className="rbtn ghost" onClick={clearItems} style={{ marginLeft: 8 }}>Clear</button>
+              <button className="rbtn" onClick={addItemRow}>{t("add_row")}</button>
+              <button className="rbtn ghost" onClick={clearItems} style={{ marginLeft: 8 }}>{t("clear")}</button>
             </div>
           </div>
 
           <div className="section-divider"></div>
 
-          <h2 className="section-title">Payments</h2>
+          <h2 className="section-title">{t("payments_section")}</h2>
 
           <table>
             <thead>
               <tr>
-                <th className="col-item" style={{ width: "20%" }}>Method</th>
-                <th style={{ width: "17%" }}>Labor</th>
-                <th style={{ width: "26%" }}>21k Gold</th>
-                <th style={{ width: "27%" }}>Notes</th>
+                <th className="col-item" style={{ width: "20%" }}>{t("method_col")}</th>
+                <th style={{ width: "17%" }}>{t("labor_col")}</th>
+                <th style={{ width: "26%" }}>{t("gold21k_col")}</th>
+                <th style={{ width: "27%" }}>{t("notes_col")}</th>
                 <th style={{ width: "10%" }}></th>
               </tr>
             </thead>
@@ -2995,11 +3258,11 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                 <tr key={row.id}>
                   <td className="col-item">
                     <select value={row.method} onChange={(e) => updatePayment(row.id, "method", e.target.value)}>
-                      <option value="">Select method…</option>
-                      <option value="Bars">Bars</option>
-                      <option value="Scrap">Scrap</option>
-                      <option value="Money">Money</option>
-                      <option value="Transfer">Transfer</option>
+                      <option value="">{t("select_method_ph")}</option>
+                      <option value="Bars">{t("method_bars")}</option>
+                      <option value="Scrap">{t("method_scrap")}</option>
+                      <option value="Money">{t("method_money")}</option>
+                      <option value="Transfer">{t("method_transfer")}</option>
                     </select>
                   </td>
                   <td>
@@ -3011,14 +3274,14 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                         <div style={{ display: "flex", gap: 4 }}>
                           <input
                             type="text"
-                            placeholder="Wt (g)"
+                            placeholder={t("wt_g_ph")}
                             value={row.barWeight}
                             onChange={(e) => updatePayment(row.id, "barWeight", e.target.value)}
                             style={{ fontSize: 11, textAlign: "center" }}
                           />
                           <input
                             type="text"
-                            placeholder="Karat"
+                            placeholder={t("karat_ph")}
                             value={row.barKarat}
                             onChange={(e) => updatePayment(row.id, "barKarat", e.target.value)}
                             style={{ fontSize: 11, textAlign: "center" }}
@@ -3033,14 +3296,14 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                         <div style={{ display: "flex", gap: 4 }}>
                           <input
                             type="text"
-                            placeholder="Money"
+                            placeholder={t("money_ph")}
                             value={row.moneyAmount}
                             onChange={(e) => updatePayment(row.id, "moneyAmount", e.target.value)}
                             style={{ fontSize: 11, textAlign: "center" }}
                           />
                           <input
                             type="text"
-                            placeholder="Gold price"
+                            placeholder={t("gold_price_ph")}
                             value={row.goldPrice}
                             onChange={(e) => updatePayment(row.id, "goldPrice", e.target.value)}
                             style={{ fontSize: 11, textAlign: "center" }}
@@ -3062,7 +3325,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                       type="button"
                       className="row-del"
                       onClick={() => removePaymentRow(row.id)}
-                      title="Delete row"
+                      title={t("delete_row_title")}
                     >
                       &times;
                     </button>
@@ -3072,7 +3335,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
             </tbody>
             <tfoot>
               <tr>
-                <td className="total-label">Total Paid</td>
+                <td className="total-label">{t("total_paid")}</td>
                 <td><input value={totalPaymentLabor.toFixed(2)} readOnly /></td>
                 <td><input value={totalPaymentGold21k.toFixed(2)} readOnly /></td>
                 <td></td>
@@ -3083,8 +3346,8 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
 
           <div className="controls">
             <div>
-              <button className="rbtn" onClick={addPaymentRow}>+ Add row</button>
-              <button className="rbtn ghost" onClick={clearPayments} style={{ marginLeft: 8 }}>Clear</button>
+              <button className="rbtn" onClick={addPaymentRow}>{t("add_row")}</button>
+              <button className="rbtn ghost" onClick={clearPayments} style={{ marginLeft: 8 }}>{t("clear")}</button>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               {saveMessage ? (
@@ -3093,7 +3356,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                 </span>
               ) : null}
               <button className="rbtn" onClick={saveStatement} disabled={saving || deleting}>
-                {saving ? "Saving…" : loadedId ? "Update" : "Save"}
+                {saving ? t("saving") : loadedId ? t("update") : t("save")}
               </button>
               {loadedId ? (
                 <button
@@ -3102,14 +3365,14 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                   disabled={saving || deleting}
                   style={{ borderColor: "#a3272c", color: "#a3272c" }}
                 >
-                  {deleting ? "Deleting…" : "Delete"}
+                  {deleting ? t("deleting") : t("delete")}
                 </button>
               ) : null}
-              <button className="rbtn ghost" onClick={() => window.print()}>Print</button>
+              <button className="rbtn ghost" onClick={() => window.print()}>{t("print")}</button>
             </div>
           </div>
 
-          <div className="foot-note">Prices subject to the daily gold rate</div>
+          <div className="foot-note">{t("foot_note")}</div>
         </div>
       </div>
     </div>
@@ -3117,13 +3380,14 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
 }
 
 function ReviewsTab() {
+  const { t } = useLang();
   const [view, setView] = useState(null); // null | "assets-liabilities" | "sales"
 
   if (view === "assets-liabilities") {
     return (
       <div>
         <button onClick={() => setView(null)} style={backBtn}>
-          &larr; Reviews
+          &larr; {t("reviews")}
         </button>
         <AssetsLiabilitiesScreen />
       </div>
@@ -3134,7 +3398,7 @@ function ReviewsTab() {
     return (
       <div>
         <button onClick={() => setView(null)} style={backBtn}>
-          &larr; Reviews
+          &larr; {t("reviews")}
         </button>
         <SalesScreen />
       </div>
@@ -3148,14 +3412,14 @@ function ReviewsTab() {
       }}
     >
       <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 600, color: "#F3EEE3", marginBottom: 16 }}>
-        Reviews
+        {t("reviews")}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <button onClick={() => setView("assets-liabilities")} style={bigHomeBtn}>
-          Assets &amp; Liabilities
+          {t("assets_liabilities")}
         </button>
         <button onClick={() => setView("sales")} style={bigHomeBtn}>
-          Sales
+          {t("sales")}
         </button>
       </div>
     </div>
@@ -3163,6 +3427,7 @@ function ReviewsTab() {
 }
 
 function AssetsLiabilitiesScreen() {
+  const { t } = useLang();
   const [loading, setLoading] = useState(true);
   const [totals, setTotals] = useState({ goldAssets: 0, goldLiabilities: 0, wageAssets: 0, wageLiabilities: 0 });
   const [debugInfo, setDebugInfo] = useState({ clientCount: 0, error: null });
@@ -3214,27 +3479,27 @@ function AssetsLiabilitiesScreen() {
   }, []);
 
   if (loading) {
-    return <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "2rem 0" }}>Loading…</div>;
+    return <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "2rem 0" }}>{t("loading")}</div>;
   }
 
   return (
     <div>
       <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 600, color: "#F3EEE3", marginBottom: 16 }}>
-        Assets &amp; Liabilities
+        {t("assets_liabilities")}
       </div>
-      <div style={{ fontSize: 12, letterSpacing: 0.3, color: "#8B7355", marginBottom: 8 }}>Gold</div>
+      <div style={{ fontSize: 12, letterSpacing: 0.3, color: "#8B7355", marginBottom: 8 }}>{t("gold_section")}</div>
       <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
-        <SummaryCard label="Owed to you" value={grams(totals.goldAssets)} color="#D4756B" />
-        <SummaryCard label="You owe" value={grams(totals.goldLiabilities)} color="#7FAE7A" />
+        <SummaryCard label={t("owed_to_you_card")} value={grams(totals.goldAssets)} color="#D4756B" />
+        <SummaryCard label={t("you_owe_card")} value={grams(totals.goldLiabilities)} color="#7FAE7A" />
       </div>
-      <div style={{ fontSize: 12, letterSpacing: 0.3, color: "#8B7355", marginBottom: 8 }}>Wages</div>
+      <div style={{ fontSize: 12, letterSpacing: 0.3, color: "#8B7355", marginBottom: 8 }}>{t("wages_section")}</div>
       <div style={{ display: "flex", gap: 10 }}>
-        <SummaryCard label="Owed to you" value={money(totals.wageAssets)} color="#D4756B" />
-        <SummaryCard label="You owe" value={money(totals.wageLiabilities)} color="#7FAE7A" />
+        <SummaryCard label={t("owed_to_you_card")} value={money(totals.wageAssets)} color="#D4756B" />
+        <SummaryCard label={t("you_owe_card")} value={money(totals.wageLiabilities)} color="#7FAE7A" />
       </div>
       <div style={{ fontSize: 11, color: "#5A5340", marginTop: 20, textAlign: "center" }}>
-        {debugInfo.clientCount} client(s) checked
-        {debugInfo.error ? ` — error: ${debugInfo.error}` : ""}
+        {t("clients_checked", { n: debugInfo.clientCount })}
+        {debugInfo.error ? t("error_label", { e: debugInfo.error }) : ""}
       </div>
     </div>
   );
@@ -3281,6 +3546,7 @@ function buildMonthlySales(customersLedgers) {
 }
 
 function SalesScreen() {
+  const { t } = useLang();
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]);
   const [error, setError] = useState(null);
@@ -3318,26 +3584,26 @@ function SalesScreen() {
   }, []);
 
   if (loading) {
-    return <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "2rem 0" }}>Loading…</div>;
+    return <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "2rem 0" }}>{t("loading")}</div>;
   }
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif" }}>
       <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 600, color: "#F3EEE3", marginBottom: 4 }}>
-        Sales
+        {t("sales")}
       </div>
       <div style={{ fontSize: 12.5, color: "#8B7355", marginBottom: 18 }}>
-        Total gold and wages taken by clients, by month
+        {t("sales_desc")}
       </div>
 
       {rows.length === 0 ? (
         <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "2rem 0" }}>
-          No sales recorded yet.
+          {t("no_sales_yet")}
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {rows.map((row) => (
-            <MonthSalesCard key={row.key} label={monthLabel(row.key)} gold={row.gold} wages={row.wages} />
+            <MonthSalesCard key={row.key} label={monthLabel(row.key)} gold={row.gold} wages={row.wages} t={t} />
           ))}
         </div>
       )}
@@ -3349,7 +3615,7 @@ function SalesScreen() {
   );
 }
 
-function MonthSalesCard({ label, gold, wages }) {
+function MonthSalesCard({ label, gold, wages, t }) {
   return (
     <div
       style={{
@@ -3363,8 +3629,8 @@ function MonthSalesCard({ label, gold, wages }) {
         {label}
       </div>
       <div style={{ display: "flex", gap: 10 }}>
-        <SummaryCard label="Gold sold" value={grams(gold)} color="#C9A227" />
-        <SummaryCard label="Wages sold" value={money(wages)} color="#C9A227" />
+        <SummaryCard label={t("gold_sold")} value={grams(gold)} color="#C9A227" />
+        <SummaryCard label={t("wages_sold")} value={money(wages)} color="#C9A227" />
       </div>
     </div>
   );
@@ -3387,31 +3653,68 @@ const bigHomeBtn = {
 };
 
 export default function Ledger() {
+  return (
+    <LanguageProvider>
+      <LedgerHome />
+    </LanguageProvider>
+  );
+}
+
+function LedgerHome() {
+  const { t, dir, lang, setLangDirect } = useLang();
   const [homeTab, setHomeTab] = useState(null);
+  const [showLangMenu, setShowLangMenu] = useState(false);
 
   if (!homeTab) {
     return (
       <div
+        dir={dir}
         style={{
           fontFamily: "'Inter', sans-serif",
           maxWidth: 480,
           margin: "0 auto",
           padding: "2rem 1rem",
+          position: "relative",
         }}
       >
-        <div style={{ fontSize: 12, letterSpacing: 0.3, color: "#8B7355", marginBottom: 2 }}>Home</div>
+        <button onClick={() => setShowLangMenu((v) => !v)} style={langToggleBtnStyle}>
+          {lang === "en" ? "English" : "العربية"}
+        </button>
+        {showLangMenu && (
+          <div style={langMenuStyle}>
+            <button
+              onClick={() => {
+                setLangDirect("en");
+                setShowLangMenu(false);
+              }}
+              style={{ ...langMenuItemStyle, fontWeight: lang === "en" ? 700 : 400 }}
+            >
+              English
+            </button>
+            <button
+              onClick={() => {
+                setLangDirect("ar");
+                setShowLangMenu(false);
+              }}
+              style={{ ...langMenuItemStyle, fontWeight: lang === "ar" ? 700 : 400 }}
+            >
+              العربية
+            </button>
+          </div>
+        )}
+        <div style={{ fontSize: 12, letterSpacing: 0.3, color: "#8B7355", marginBottom: 2 }}>{t("home")}</div>
         <h1 style={{ fontFamily: "'Fraunces', serif", fontSize: 28, fontWeight: 600, margin: "0 0 1.5rem", color: "#F3EEE3" }}>
-          Modern Gold
+          {t("app_title")}
         </h1>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <button onClick={() => setHomeTab("clients")} style={bigHomeBtn}>
-            Clients
+            {t("nav_clients")}
           </button>
           <button onClick={() => setHomeTab("receipts")} style={bigHomeBtn}>
-            Receipts
+            {t("nav_receipts")}
           </button>
           <button onClick={() => setHomeTab("reviews")} style={bigHomeBtn}>
-            Reviews
+            {t("nav_reviews")}
           </button>
         </div>
       </div>
@@ -3419,9 +3722,9 @@ export default function Ledger() {
   }
 
   return (
-    <div style={{ fontFamily: "'Inter', sans-serif", maxWidth: 480, margin: "0 auto", padding: "1rem 1rem 0" }}>
+    <div dir={dir} style={{ fontFamily: "'Inter', sans-serif", maxWidth: 480, margin: "0 auto", padding: "1rem 1rem 0" }}>
       <button onClick={() => setHomeTab(null)} style={backBtn}>
-        Home
+        {t("home")}
       </button>
       {homeTab === "clients" && <ClientsTab />}
       {homeTab === "receipts" && <ReceiptsTab />}
