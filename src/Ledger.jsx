@@ -114,6 +114,64 @@ function entriesForBook(entries, book) {
   return (entries || []).filter((e) => (book === "current" ? !e.book : e.book === book));
 }
 
+// Removes previously-posted statement ledger entries (by id) from a
+// client's gold/wages arrays. Used when a statement tied to a client is
+// deleted, or re-saved (so the old amounts don't linger alongside new ones).
+async function removePostedEntries(clientId, posted) {
+  if (!clientId || !posted) return;
+  const idsToRemove = new Set(
+    [posted.goldSaleId, posted.goldPaymentId, posted.wageSaleId, posted.wagePaymentId].filter(Boolean)
+  );
+  if (idsToRemove.size === 0) return;
+  try {
+    const data = await fetchLedgerFor(clientId);
+    const next = {
+      ...data,
+      gold: data.gold.filter((e) => !idsToRemove.has(e.id)),
+      wages: data.wages.filter((e) => !idsToRemove.has(e.id)),
+    };
+    await window.storage.set("ledger:" + clientId, JSON.stringify(next), false);
+  } catch (e) {
+    // best-effort cleanup; nothing more we can do here
+  }
+}
+
+// Posts a statement's sale/payment totals into a client's gold and wages
+// ledgers as up to four dated entries (sale grams/labor add to balance,
+// payment 21k-gold/labor subtract from it), returning the new entries'
+// ids so they can be found and reversed later if the statement changes.
+async function postStatementToClient(clientId, statementNo, dateStr, totals) {
+  const { totalGold, netLabor, totalPaymentGold21k, totalPaymentLabor } = totals;
+  const data = await fetchLedgerFor(clientId);
+  const gold = [...data.gold];
+  const wages = [...data.wages];
+  const posted = { clientId };
+
+  if (totalGold) {
+    const entry = { id: uid(), amount: totalGold, date: dateStr, note: `Statement #${statementNo} — sale` };
+    gold.unshift(entry);
+    posted.goldSaleId = entry.id;
+  }
+  if (totalPaymentGold21k) {
+    const entry = { id: uid(), amount: -totalPaymentGold21k, date: dateStr, note: `Statement #${statementNo} — payment` };
+    gold.unshift(entry);
+    posted.goldPaymentId = entry.id;
+  }
+  if (netLabor) {
+    const entry = { id: uid(), amount: netLabor, date: dateStr, note: `Statement #${statementNo} — sale` };
+    wages.unshift(entry);
+    posted.wageSaleId = entry.id;
+  }
+  if (totalPaymentLabor) {
+    const entry = { id: uid(), amount: -totalPaymentLabor, date: dateStr, note: `Statement #${statementNo} — payment` };
+    wages.unshift(entry);
+    posted.wagePaymentId = entry.id;
+  }
+
+  await window.storage.set("ledger:" + clientId, JSON.stringify({ ...data, gold, wages }), false);
+  return posted;
+}
+
 function ClientsTab() {
   const [customers, setCustomers] = useState(null);
   const [categories, setCategories] = useState(null);
@@ -2373,6 +2431,8 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
   const [year, setYear] = useState(() => todayStr().slice(0, 4));
   const [note, setNote] = useState("");
   const [clientName, setClientName] = useState("");
+  const [clientId, setClientId] = useState(null);
+  const [posted, setPosted] = useState(null);
   const [showClientDropdown, setShowClientDropdown] = useState(false);
   const [customers, setCustomers] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -2415,6 +2475,8 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
           setYear(data.year || todayStr().slice(0, 4));
           setNote(data.note || "");
           setClientName(data.clientName || "");
+          setClientId(data.clientId || null);
+          setPosted(data.posted || null);
           setItems(data.items && data.items.length ? data.items : Array.from({ length: 1 }, emptyItemRow));
           setPayments(data.payments && data.payments.length ? data.payments : Array.from({ length: 1 }, emptyPaymentRow));
           setDiscount(data.discount || "");
@@ -2491,15 +2553,31 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
     }
   }
 
-  // Saves the statement to Supabase under "receipt:<id>", and keeps a
-  // lightweight index in "receipts-list" so the View Receipts screen can
-  // list every saved statement without fetching each one individually.
+  // Saves the statement to Supabase under "receipt:<id>", keeps a
+  // lightweight index in "receipts-list", and — if a client is linked —
+  // posts (or re-posts) the sale/payment totals into that client's ledger.
   async function saveStatement() {
     setSaving(true);
     setSaveMessage("");
     try {
       const id = loadedId || uid();
       const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
+      // Undo whatever was posted last time (if anything) before posting
+      // fresh amounts — covers edits to the totals and switching clients.
+      if (posted) {
+        await removePostedEntries(posted.clientId, posted);
+      }
+      let newPosted = null;
+      if (clientId) {
+        newPosted = await postStatementToClient(clientId, statementNo, dateStr, {
+          totalGold,
+          netLabor,
+          totalPaymentGold21k,
+          totalPaymentLabor,
+        });
+      }
+
       const data = {
         id,
         statementNo,
@@ -2509,6 +2587,8 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
         date: dateStr,
         note,
         clientName,
+        clientId,
+        posted: newPosted,
         items,
         payments,
         discount,
@@ -2529,22 +2609,27 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
       await window.storage.set("receipts-list", JSON.stringify([indexEntry, ...withoutThis]), false);
 
       setLoadedId(id);
-      setSaveMessage("Saved");
+      setPosted(newPosted);
+      setSaveMessage(clientId ? "Saved & posted to client" : "Saved (not linked to a client)");
     } catch (e) {
       setSaveMessage("Save failed");
     } finally {
       setSaving(false);
-      setTimeout(() => setSaveMessage(""), 2500);
+      setTimeout(() => setSaveMessage(""), 3000);
     }
   }
 
-  // Deletes the whole saved statement — from "receipt:<id>" and from the
-  // "receipts-list" index — and hands control back to the caller.
+  // Deletes the whole saved statement — from "receipt:<id>", the
+  // "receipts-list" index, and (if it was linked) the entries it posted
+  // into a client's ledger — and hands control back to the caller.
   async function deleteStatement() {
     if (!loadedId) return;
     if (!window.confirm("Delete this receipt? This can't be undone.")) return;
     setDeleting(true);
     try {
+      if (posted) {
+        await removePostedEntries(posted.clientId, posted);
+      }
       try {
         await window.storage.delete("receipt:" + loadedId, false);
       } catch (e) {
@@ -2745,6 +2830,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                   placeholder="Search client name…"
                   onChange={(e) => {
                     setClientName(e.target.value);
+                    setClientId(null);
                     setShowClientDropdown(true);
                   }}
                   onFocus={() => setShowClientDropdown(true)}
@@ -2759,6 +2845,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={() => {
                           setClientName(c.name);
+                          setClientId(c.id);
                           setShowClientDropdown(false);
                         }}
                       >
@@ -2767,6 +2854,11 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                     ))}
                   </div>
                 )}
+                {clientName.trim() ? (
+                  <div style={{ fontSize: 10.5, marginTop: 3, color: clientId ? "#7FAE7A" : "#B08A4E" }}>
+                    {clientId ? "Linked to client — totals will post to their book" : "Not linked — pick a name from the list to post totals"}
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
@@ -2964,7 +3056,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               {saveMessage ? (
-                <span style={{ fontSize: 11, color: saveMessage === "Saved" ? "#7FAE7A" : "#D4756B" }}>
+                <span style={{ fontSize: 11, color: saveMessage.startsWith("Saved") ? "#7FAE7A" : "#D4756B" }}>
                   {saveMessage}
                 </span>
               ) : null}
