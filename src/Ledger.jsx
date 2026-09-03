@@ -95,6 +95,7 @@ const translations = {
     transactions: "Transactions",
     transactions_desc: "Pick a date range to see every client's gold and wage movements in that period — including statements not linked to a client.",
     unlinked_tag: "Unlinked statement", no_transactions: "No movements in this period.",
+    daily_statements: "Daily statements",
   },
   ar: {
     home: "الرئيسية", app_title: "الذهب الحديث", nav_clients: "العملاء", nav_receipts: "الإيصالات", nav_reviews: "المراجعات",
@@ -182,6 +183,7 @@ const translations = {
     transactions: "المعاملات",
     transactions_desc: "اختر نطاقًا زمنيًا لعرض حركات الذهب والأجور لكل عميل خلال تلك الفترة — بما في ذلك الإيصالات غير المرتبطة بعميل.",
     unlinked_tag: "إيصال غير مرتبط", no_transactions: "لا توجد حركات في هذه الفترة.",
+    daily_statements: "الإيصالات اليومية",
   },
 };
 
@@ -3497,9 +3499,16 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
             </tbody>
             <tfoot>
               <tr>
-                <td className="total-label">{t("total_paid")}</td>
+                <td className="total-label">{t("total_label")}</td>
                 <td><input value={totalPaymentLabor.toFixed(2)} readOnly /></td>
                 <td><input value={totalPaymentGold21k.toFixed(2)} readOnly /></td>
+                <td></td>
+                <td></td>
+              </tr>
+              <tr>
+                <td className="total-label">{t("total_paid")}</td>
+                <td><input value="" readOnly /></td>
+                <td><input value="" readOnly /></td>
                 <td></td>
                 <td></td>
               </tr>
@@ -3543,7 +3552,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
 
 function ReviewsTab() {
   const { t } = useLang();
-  const [view, setView] = useState(null); // null | "assets-liabilities" | "sales" | "transactions"
+  const [view, setView] = useState(null); // null | "assets-liabilities" | "sales" | "transactions" | "daily-statements"
 
   if (view === "assets-liabilities") {
     return (
@@ -3578,6 +3587,17 @@ function ReviewsTab() {
     );
   }
 
+  if (view === "daily-statements") {
+    return (
+      <div>
+        <button onClick={() => setView(null)} style={backBtn}>
+          &larr; {t("reviews")}
+        </button>
+        <DailyStatementsScreen />
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -3597,7 +3617,23 @@ function ReviewsTab() {
         <button onClick={() => setView("transactions")} style={bigHomeBtn}>
           {t("transactions")}
         </button>
+        <button onClick={() => setView("daily-statements")} style={bigHomeBtn}>
+          {t("daily_statements")}
+        </button>
       </div>
+    </div>
+  );
+}
+
+// Placeholder screen — content to come later.
+function DailyStatementsScreen() {
+  const { t } = useLang();
+  return (
+    <div style={{ fontFamily: "'Inter', sans-serif" }}>
+      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 600, color: "#F3EEE3", marginBottom: 16 }}>
+        {t("daily_statements")}
+      </div>
+      <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "2rem 0" }}>{t("coming_soon")}</div>
     </div>
   );
 }
@@ -3893,9 +3929,10 @@ function TransactionsScreen() {
         unlinkedRows = [];
       }
 
-      const all = [...clientRows, ...unlinkedRows]
-        .filter((r) => r.goldTaken || r.goldPaid || r.wageTaken || r.wagePaid)
-        .sort((a, b) => a.name.localeCompare(b.name));
+      // Keep clients in the same order as the client list itself (not
+      // alphabetical) — unlinked statement names are appended after, in
+      // the order they were first encountered.
+      const all = [...clientRows, ...unlinkedRows].filter((r) => r.goldTaken || r.goldPaid || r.wageTaken || r.wagePaid);
 
       if (!cancelled) {
         setRows(all);
