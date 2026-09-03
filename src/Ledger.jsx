@@ -105,6 +105,7 @@ const translations = {
     tap_to_toggle_hint: "Tap a number to mark it counted or not counted.",
     saved: "Saved", count_option: "Count", dont_count_option: "Don't count",
     save_choices: "Save",
+    using_total_paid: "Money entered uses this statement's Total Paid box instead: {v}",
   },
   ar: {
     home: "الرئيسية", app_title: "الذهب الحديث", nav_clients: "العملاء", nav_receipts: "الإيصالات", nav_reviews: "المراجعات",
@@ -202,6 +203,7 @@ const translations = {
     tap_to_toggle_hint: "اضغط على الرقم لتحديد ما إذا كان محسوبًا أم لا.",
     saved: "تم الحفظ", count_option: "احسبه", dont_count_option: "لا تحسبه",
     save_choices: "حفظ",
+    using_total_paid: "المال الداخل يستخدم مربع (إجمالي المدفوع) لهذا الكشف بدلاً من ذلك: {v}",
   },
 };
 
@@ -3685,6 +3687,7 @@ function DailyStatementsScreen() {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]);
   const [overrides, setOverrides] = useState({}); // "<rowKey>:<field>" -> boolean
+  const [laborOverrides, setLaborOverrides] = useState({}); // statementId -> number (from "Total Paid" box)
   const [activeChoice, setActiveChoice] = useState(null); // { key, field } | null
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
@@ -3698,6 +3701,7 @@ function DailyStatementsScreen() {
       setSaveMessage("");
       setDirty(false);
       let detailRows = [];
+      let laborOverridesByStatement = {};
       try {
         const listRes = await window.storage.get("receipts-list", false);
         const list = listRes ? JSON.parse(listRes.value) : [];
@@ -3714,12 +3718,21 @@ function DailyStatementsScreen() {
         );
         fullReceipts.forEach((data) => {
           if (!data) return;
+          // If the statement's "Total Paid" box has a number in it, that
+          // figure stands in for this statement's whole contribution to
+          // Money entered — otherwise fall back to summing its payment rows.
+          const totalPaidRaw = (data.totalPaidLabor || "").toString().trim();
+          if (totalPaidRaw !== "") {
+            const num = parseFloat(toEnglishDigits(totalPaidRaw));
+            if (!isNaN(num)) laborOverridesByStatement[data.id] = num;
+          }
           (data.payments || []).forEach((row) => {
             const labor = parseFloat(toEnglishDigits(row.labor)) || 0;
             const gold21k = parseFloat(toEnglishDigits(row.gold21k)) || 0;
             if (!row.method && !labor && !gold21k) return;
             detailRows.push({
               key: data.id + ":" + row.id,
+              statementId: data.id,
               statementNo: data.statementNo,
               clientName: data.clientName || "",
               method: row.method || "",
@@ -3746,6 +3759,7 @@ function DailyStatementsScreen() {
       if (!cancelled) {
         setRows(detailRows);
         setOverrides(savedOverrides);
+        setLaborOverrides(laborOverridesByStatement);
         setLoading(false);
       }
     })();
@@ -3787,8 +3801,20 @@ function DailyStatementsScreen() {
 
   const goldEntered = rows.filter((r) => isCounted(r, "gold21k")).reduce((s, r) => s + r.gold21k, 0);
   const goldExcluded = rows.filter((r) => !isCounted(r, "gold21k")).reduce((s, r) => s + Math.abs(r.gold21k), 0);
-  const laborEntered = rows.filter((r) => isCounted(r, "labor")).reduce((s, r) => s + r.labor, 0);
-  const laborExcluded = rows.filter((r) => !isCounted(r, "labor")).reduce((s, r) => s + Math.abs(r.labor), 0);
+
+  // Money entered: a statement whose "Total Paid" box has a number uses
+  // that figure once for its whole contribution, instead of summing its
+  // individual payment rows — those rows still display below for
+  // reference, but don't separately feed the total in that case.
+  const overriddenStatementIds = new Set(Object.keys(laborOverrides));
+  const laborFromOverrides = Object.values(laborOverrides).reduce((s, v) => s + v, 0);
+  const laborFromRows = rows
+    .filter((r) => !overriddenStatementIds.has(r.statementId) && isCounted(r, "labor"))
+    .reduce((s, r) => s + r.labor, 0);
+  const laborEntered = laborFromOverrides + laborFromRows;
+  const laborExcluded = rows
+    .filter((r) => !overriddenStatementIds.has(r.statementId) && !isCounted(r, "labor"))
+    .reduce((s, r) => s + Math.abs(r.labor), 0);
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif" }} className="daily-print-area">
@@ -3877,6 +3903,7 @@ function DailyStatementsScreen() {
                   const goldCounted = isCounted(row, "gold21k");
                   const laborChoiceOpen = activeChoice && activeChoice.key === row.key && activeChoice.field === "labor";
                   const goldChoiceOpen = activeChoice && activeChoice.key === row.key && activeChoice.field === "gold21k";
+                  const laborOverridden = Object.prototype.hasOwnProperty.call(laborOverrides, row.statementId);
                   return (
                     <div
                       key={row.key}
@@ -3895,16 +3922,17 @@ function DailyStatementsScreen() {
                         <span style={{ color: "#8B7355" }}>{row.method}</span>
                         <button
                           type="button"
+                          disabled={laborOverridden}
                           onClick={() => setActiveChoice(laborChoiceOpen ? null : { key: row.key, field: "labor" })}
                           className={laborCounted ? "num-included" : "num-excluded"}
                           style={{
                             background: "transparent",
                             border: "none",
                             padding: "2px 4px",
-                            cursor: "pointer",
+                            cursor: laborOverridden ? "default" : "pointer",
                             fontSize: 13,
                             fontWeight: 600,
-                            color: laborCounted ? "#C9A227" : "#D4756B",
+                            color: laborOverridden ? "#8B7355" : laborCounted ? "#C9A227" : "#D4756B",
                           }}
                         >
                           {money(row.labor)}
@@ -3960,6 +3988,11 @@ function DailyStatementsScreen() {
                           >
                             {t("dont_count_option")}
                           </button>
+                        </div>
+                      )}
+                      {laborOverridden && (
+                        <div style={{ fontSize: 11, color: "#8B7355", marginTop: 3 }}>
+                          {t("using_total_paid", { v: money(laborOverrides[row.statementId]) })}
                         </div>
                       )}
                       {row.note ? <div style={{ fontSize: 11.5, color: "#8B7355", marginTop: 3 }}>{row.note}</div> : null}
