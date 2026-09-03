@@ -300,7 +300,7 @@ function toEnglishDigits(str) {
 
 function money(n) {
   const v = Number(n) || 0;
-  return v.toLocaleString(undefined, { style: "currency", currency: "USD" });
+  return v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function grams(n) {
@@ -3798,6 +3798,16 @@ function TransactionsScreen() {
     };
   }, [fromDate, toDate]);
 
+  const periodTotals = rows.reduce(
+    (acc, r) => ({
+      goldTaken: acc.goldTaken + r.goldTaken,
+      goldPaid: acc.goldPaid + r.goldPaid,
+      wageTaken: acc.wageTaken + r.wageTaken,
+      wagePaid: acc.wagePaid + r.wagePaid,
+    }),
+    { goldTaken: 0, goldPaid: 0, wageTaken: 0, wagePaid: 0 }
+  );
+
   return (
     <div style={{ fontFamily: "'Inter', sans-serif" }}>
       <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 600, color: "#F3EEE3", marginBottom: 4 }}>
@@ -3815,6 +3825,25 @@ function TransactionsScreen() {
           <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={inputStyle} />
         </div>
       </div>
+
+      {!loading && rows.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 15, fontWeight: 500, color: "#F3EEE3", marginBottom: 8 }}>
+            {t("total_label")} · {t("tab_gold")}
+          </div>
+          <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+            <CustomStatCard label={t("taken")} value={grams(periodTotals.goldTaken)} color="#D4756B" />
+            <CustomStatCard label={t("paid_back_stat")} value={grams(periodTotals.goldPaid)} color="#7FAE7A" />
+          </div>
+          <div style={{ fontSize: 15, fontWeight: 500, color: "#F3EEE3", marginBottom: 8 }}>
+            {t("total_label")} · {t("tab_wages")}
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <CustomStatCard label={t("taken")} value={money(periodTotals.wageTaken)} color="#D4756B" />
+            <CustomStatCard label={t("paid_back_stat")} value={money(periodTotals.wagePaid)} color="#7FAE7A" />
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "2rem 0" }}>{t("loading")}</div>
