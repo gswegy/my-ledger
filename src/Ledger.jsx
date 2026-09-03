@@ -96,6 +96,12 @@ const translations = {
     transactions_desc: "Pick a date range to see every client's gold and wage movements in that period — including statements not linked to a client.",
     unlinked_tag: "Unlinked statement", no_transactions: "No movements in this period.",
     daily_statements: "Daily statements",
+    daily_statements_desc: "Every payment received on the chosen date — what actually came into the shop.",
+    date_label: "Date", gold_entered: "Gold entered", money_entered: "Money entered",
+    converted_note: "Also converted {v}g of client credit into a labor adjustment — not counted above, since it never physically arrived.",
+    converted_note_labor: "Also adjusted {v} of labor credit that wasn't cash received.",
+    no_payments_today: "No payments recorded for this date.",
+    stmt_col: "Statement", client_col: "Client",
   },
   ar: {
     home: "الرئيسية", app_title: "الذهب الحديث", nav_clients: "العملاء", nav_receipts: "الإيصالات", nav_reviews: "المراجعات",
@@ -184,6 +190,12 @@ const translations = {
     transactions_desc: "اختر نطاقًا زمنيًا لعرض حركات الذهب والأجور لكل عميل خلال تلك الفترة — بما في ذلك الإيصالات غير المرتبطة بعميل.",
     unlinked_tag: "إيصال غير مرتبط", no_transactions: "لا توجد حركات في هذه الفترة.",
     daily_statements: "الإيصالات اليومية",
+    daily_statements_desc: "كل دفعة تم استلامها في التاريخ المحدد — ما دخل المحل فعليًا.",
+    date_label: "التاريخ", gold_entered: "الذهب الداخل", money_entered: "المال الداخل",
+    converted_note: "كما تم تحويل {v} جم من رصيد العميل إلى تسوية أجور — لم تُحتسب أعلاه لأنها لم تدخل فعليًا.",
+    converted_note_labor: "كما تم تعديل {v} من رصيد الأجور التي لم تكن نقدًا مستلمًا.",
+    no_payments_today: "لا توجد مدفوعات مسجلة لهذا التاريخ.",
+    stmt_col: "الكشف", client_col: "العميل",
   },
 };
 
@@ -3637,15 +3649,143 @@ function ReviewsTab() {
   );
 }
 
-// Placeholder screen — content to come later.
+// For a chosen date, sums every payment across every statement saved that
+// day — client-linked or not — into what actually came into the shop.
+// A payment row with a negative 21k-gold or labor value is a balance
+// correction (e.g. buying back a client's excess scrap as a labor credit),
+// not gold or cash arriving, so it's kept out of the entered totals and
+// shown separately instead of silently netting against the real total.
 function DailyStatementsScreen() {
   const { t } = useLang();
+  const [selectedDate, setSelectedDate] = useState(todayStr());
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      let detailRows = [];
+      try {
+        const listRes = await window.storage.get("receipts-list", false);
+        const list = listRes ? JSON.parse(listRes.value) : [];
+        const onDate = list.filter((r) => r.date === selectedDate);
+        const fullReceipts = await Promise.all(
+          onDate.map(async (r) => {
+            try {
+              const res = await window.storage.get("receipt:" + r.id, false);
+              return res ? JSON.parse(res.value) : null;
+            } catch (e) {
+              return null;
+            }
+          })
+        );
+        fullReceipts.forEach((data) => {
+          if (!data) return;
+          (data.payments || []).forEach((row) => {
+            const labor = parseFloat(toEnglishDigits(row.labor)) || 0;
+            const gold21k = parseFloat(toEnglishDigits(row.gold21k)) || 0;
+            if (!row.method && !labor && !gold21k) return;
+            detailRows.push({
+              key: data.id + ":" + row.id,
+              statementNo: data.statementNo,
+              clientName: data.clientName || "",
+              method: row.method || "",
+              labor,
+              gold21k,
+              note: row.note || "",
+            });
+          });
+        });
+      } catch (e) {
+        detailRows = [];
+      }
+
+      if (!cancelled) {
+        setRows(detailRows);
+        setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDate]);
+
+  const goldEntered = rows.filter((r) => r.gold21k > 0).reduce((s, r) => s + r.gold21k, 0);
+  const goldConverted = rows.filter((r) => r.gold21k < 0).reduce((s, r) => s + Math.abs(r.gold21k), 0);
+  const laborEntered = rows.filter((r) => r.labor > 0).reduce((s, r) => s + r.labor, 0);
+  const laborConverted = rows.filter((r) => r.labor < 0).reduce((s, r) => s + Math.abs(r.labor), 0);
+
   return (
     <div style={{ fontFamily: "'Inter', sans-serif" }}>
-      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 600, color: "#F3EEE3", marginBottom: 16 }}>
+      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 600, color: "#F3EEE3", marginBottom: 4 }}>
         {t("daily_statements")}
       </div>
-      <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "2rem 0" }}>{t("coming_soon")}</div>
+      <div style={{ fontSize: 12.5, color: "#8B7355", marginBottom: 18 }}>{t("daily_statements_desc")}</div>
+
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 11, color: "#8B7355", marginBottom: 4 }}>{t("date_label")}</div>
+        <input
+          type="date"
+          value={selectedDate}
+          onChange={(e) => setSelectedDate(e.target.value)}
+          style={inputStyle}
+        />
+      </div>
+
+      {loading ? (
+        <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "2rem 0" }}>{t("loading")}</div>
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+            <CustomStatCard label={t("gold_entered")} value={grams(goldEntered)} color="#7FAE7A" />
+            <CustomStatCard label={t("money_entered")} value={money(laborEntered)} color="#7FAE7A" />
+          </div>
+
+          {goldConverted > 0 && (
+            <div style={{ fontSize: 11.5, color: "#B08A4E", marginBottom: 6 }}>
+              {t("converted_note", { v: grams(goldConverted).replace(" g", "") })}
+            </div>
+          )}
+          {laborConverted > 0 && (
+            <div style={{ fontSize: 11.5, color: "#B08A4E", marginBottom: 6 }}>
+              {t("converted_note_labor", { v: money(laborConverted) })}
+            </div>
+          )}
+
+          <div style={{ marginTop: 16 }}>
+            {rows.length === 0 ? (
+              <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "2rem 0" }}>
+                {t("no_payments_today")}
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {rows.map((row) => (
+                  <div
+                    key={row.key}
+                    style={{ background: "#1C1913", border: "1px solid #3A3527", borderRadius: 10, padding: "0.7rem 0.9rem" }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 14, fontWeight: 600, color: "#F3EEE3" }}>
+                        {row.clientName || t("unlinked_tag")}
+                      </div>
+                      <div style={{ fontSize: 10.5, color: "#8B7355" }}>
+                        {t("stmt_col")} #{row.statementNo}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                      <span style={{ color: "#8B7355" }}>{row.method}</span>
+                      <span style={{ color: row.labor < 0 ? "#B08A4E" : "#C9A227" }}>{money(row.labor)}</span>
+                      <span style={{ color: row.gold21k < 0 ? "#B08A4E" : "#C9A227" }}>{grams(row.gold21k)}</span>
+                    </div>
+                    {row.note ? <div style={{ fontSize: 11.5, color: "#8B7355", marginTop: 3 }}>{row.note}</div> : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
