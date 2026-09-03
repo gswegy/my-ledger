@@ -2822,6 +2822,10 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
   const [items, setItems] = useState(() => Array.from({ length: 1 }, emptyItemRow));
   const [payments, setPayments] = useState(() => Array.from({ length: 1 }, emptyPaymentRow));
   const [discount, setDiscount] = useState("");
+  // Free-text "Total Paid" row in Payments — purely a note the person can
+  // fill in by hand; it never feeds into any calculation or ledger post.
+  const [totalPaidLabor, setTotalPaidLabor] = useState("");
+  const [totalPaidGold21k, setTotalPaidGold21k] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
   const [saveTone, setSaveTone] = useState("ok"); // "ok" | "warn" | "error"
@@ -2878,6 +2882,8 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
           setItems(data.items && data.items.length ? data.items : Array.from({ length: 1 }, emptyItemRow));
           setPayments(data.payments && data.payments.length ? data.payments : Array.from({ length: 1 }, emptyPaymentRow));
           setDiscount(data.discount || "");
+          setTotalPaidLabor(data.totalPaidLabor || "");
+          setTotalPaidGold21k(data.totalPaidGold21k || "");
         }
       } catch (e) {
         setSaveMessage(t("couldnt_load_receipt"));
@@ -3009,6 +3015,8 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
         items,
         payments,
         discount,
+        totalPaidLabor,
+        totalPaidGold21k,
         savedAt: new Date().toISOString(),
       };
 
@@ -3507,8 +3515,22 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
               </tr>
               <tr>
                 <td className="total-label">{t("total_paid")}</td>
-                <td><input value="" readOnly /></td>
-                <td><input value="" readOnly /></td>
+                <td>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={totalPaidLabor}
+                    onChange={(e) => setTotalPaidLabor(toEnglishDigits(e.target.value))}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={totalPaidGold21k}
+                    onChange={(e) => setTotalPaidGold21k(toEnglishDigits(e.target.value))}
+                  />
+                </td>
                 <td></td>
                 <td></td>
               </tr>
