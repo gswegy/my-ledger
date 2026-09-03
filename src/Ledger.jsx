@@ -450,23 +450,63 @@ async function postStatementToClient(clientId, statementNo, dateStr, totals) {
   const wages = [...data.wages];
   const posted = { clientId };
 
+  // A client with any named book (e.g. "2026") no longer treats an
+  // untagged entry as belonging to it — only entries explicitly tagged
+  // with that book id show up there. So a new entry has to be tagged
+  // with whatever book is actually active for this client (the newest
+  // one, same rule the client screen itself uses), or it silently lands
+  // in a book nobody is looking at. A client with no named books yet has
+  // no such book to match, so the entry is left untagged as before.
+  const goldBooks = Array.from(new Set([...distinctBooks(data.gold), ...((data.extraBooks && data.extraBooks.gold) || [])]))
+    .sort()
+    .reverse();
+  const wageBooks = Array.from(new Set([...distinctBooks(data.wages), ...((data.extraBooks && data.extraBooks.wages) || [])]))
+    .sort()
+    .reverse();
+  const activeGoldBook = goldBooks[0] || null;
+  const activeWageBook = wageBooks[0] || null;
+
   if (totalGold) {
-    const entry = { id: uid(), amount: totalGold, date: dateStr, note: `Statement #${statementNo} — sale` };
+    const entry = {
+      id: uid(),
+      amount: totalGold,
+      date: dateStr,
+      note: `Statement #${statementNo} — sale`,
+      ...(activeGoldBook ? { book: activeGoldBook } : {}),
+    };
     gold.unshift(entry);
     posted.goldSaleId = entry.id;
   }
   if (totalPaymentGold21k) {
-    const entry = { id: uid(), amount: -totalPaymentGold21k, date: dateStr, note: `Statement #${statementNo} — payment` };
+    const entry = {
+      id: uid(),
+      amount: -totalPaymentGold21k,
+      date: dateStr,
+      note: `Statement #${statementNo} — payment`,
+      ...(activeGoldBook ? { book: activeGoldBook } : {}),
+    };
     gold.unshift(entry);
     posted.goldPaymentId = entry.id;
   }
   if (netLabor) {
-    const entry = { id: uid(), amount: netLabor, date: dateStr, note: `Statement #${statementNo} — sale` };
+    const entry = {
+      id: uid(),
+      amount: netLabor,
+      date: dateStr,
+      note: `Statement #${statementNo} — sale`,
+      ...(activeWageBook ? { book: activeWageBook } : {}),
+    };
     wages.unshift(entry);
     posted.wageSaleId = entry.id;
   }
   if (totalPaymentLabor) {
-    const entry = { id: uid(), amount: -totalPaymentLabor, date: dateStr, note: `Statement #${statementNo} — payment` };
+    const entry = {
+      id: uid(),
+      amount: -totalPaymentLabor,
+      date: dateStr,
+      note: `Statement #${statementNo} — payment`,
+      ...(activeWageBook ? { book: activeWageBook } : {}),
+    };
     wages.unshift(entry);
     posted.wagePaymentId = entry.id;
   }
