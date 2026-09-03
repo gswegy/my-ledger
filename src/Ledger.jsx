@@ -72,6 +72,7 @@ const translations = {
     search_client_name_ph: "Search client name…",
     linked_client: "Linked to client — totals will post to their book",
     not_linked_client: "Not linked — pick a name from the list to post totals",
+    duplicate_name_hint: "same name as another client — check you picked the right one",
     sales_section: "Sales", category_col: "Category", price_col: "Price", labor_col: "Labor", gram_col: "Gram",
     select_category_ph: "Select category…", total_label: "Total", discount_label: "Discount",
     add_row: "+ Add row", clear: "Clear", payments_section: "Payments",
@@ -158,6 +159,7 @@ const translations = {
     search_client_name_ph: "ابحث عن اسم العميل…",
     linked_client: "مرتبط بعميل — ستُرحّل الإجماليات إلى دفتره",
     not_linked_client: "غير مرتبط — اختر اسمًا من القائمة لترحيل الإجماليات",
+    duplicate_name_hint: "نفس اسم عميل آخر — تأكد أنك اخترت الشخص الصحيح",
     sales_section: "المبيعات", category_col: "الفئة", price_col: "السعر", labor_col: "الأجرة", gram_col: "الوزن",
     select_category_ph: "اختر الفئة…", total_label: "الإجمالي", discount_label: "الخصم",
     add_row: "+ إضافة صف", clear: "مسح", payments_section: "المدفوعات",
@@ -473,6 +475,21 @@ async function postStatementToClient(clientId, statementNo, dateStr, totals) {
   if (!result) {
     throw new Error("Failed to write ledger for client " + clientId);
   }
+
+  // Read the ledger back and confirm the new entries are actually there —
+  // a write can report success without the data really sticking (stale
+  // client id, eventual-consistency lag, etc.), and that's indistinguishable
+  // from a real failure unless we check.
+  const expectedIds = [posted.goldSaleId, posted.goldPaymentId, posted.wageSaleId, posted.wagePaymentId].filter(Boolean);
+  if (expectedIds.length > 0) {
+    const verify = await fetchLedgerFor(clientId);
+    const allIds = new Set([...(verify.gold || []), ...(verify.wages || [])].map((e) => e.id));
+    const missing = expectedIds.some((id) => !allIds.has(id));
+    if (missing) {
+      throw new Error("Ledger write for client " + clientId + " did not persist");
+    }
+  }
+
   return posted;
 }
 
@@ -2828,6 +2845,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
   const filteredCustomers = clientName.trim()
     ? customers.filter((c) => c.name.toLowerCase().includes(clientName.trim().toLowerCase()))
     : customers;
+  const linkedCustomerPhone = clientId ? (customers.find((c) => c.id === clientId) || {}).phone : null;
 
   const totalGold = items.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.gram)) || 0), 0);
   const totalLabor = items.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.labor)) || 0), 0);
@@ -3216,25 +3234,37 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                 />
                 {showClientDropdown && filteredCustomers.length > 0 && (
                   <div className="client-dropdown">
-                    {filteredCustomers.map((c) => (
-                      <div
-                        key={c.id}
-                        className="client-dropdown-item"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
-                          setClientName(c.name);
-                          setClientId(c.id);
-                          setShowClientDropdown(false);
-                        }}
-                      >
-                        {c.name}
-                      </div>
-                    ))}
+                    {filteredCustomers.map((c) => {
+                      const isDuplicateName =
+                        customers.filter((x) => x.name.trim().toLowerCase() === c.name.trim().toLowerCase()).length > 1;
+                      return (
+                        <div
+                          key={c.id}
+                          className="client-dropdown-item"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setClientName(c.name);
+                            setClientId(c.id);
+                            setShowClientDropdown(false);
+                          }}
+                        >
+                          <div>{c.name}</div>
+                          {(c.phone || isDuplicateName) && (
+                            <div style={{ fontSize: 10.5, color: "#8B7355", marginTop: 1 }}>
+                              {c.phone || ""}
+                              {isDuplicateName ? (c.phone ? " · " : "") + t("duplicate_name_hint") : ""}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
                 {clientName.trim() ? (
                   <div style={{ fontSize: 10.5, marginTop: 3, color: clientId ? "#7FAE7A" : "#B08A4E" }}>
-                    {clientId ? t("linked_client") : t("not_linked_client")}
+                    {clientId
+                      ? t("linked_client") + (linkedCustomerPhone ? ` (${linkedCustomerPhone})` : "")
+                      : t("not_linked_client")}
                   </div>
                 ) : null}
               </div>
