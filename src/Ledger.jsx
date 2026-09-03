@@ -102,6 +102,7 @@ const translations = {
     converted_note_labor: "Also adjusted {v} of labor credit that wasn't cash received.",
     no_payments_today: "No payments recorded for this date.",
     stmt_col: "Statement", client_col: "Client",
+    tap_to_toggle_hint: "Tap a number to mark it counted or not counted.",
   },
   ar: {
     home: "الرئيسية", app_title: "الذهب الحديث", nav_clients: "العملاء", nav_receipts: "الإيصالات", nav_reviews: "المراجعات",
@@ -196,6 +197,7 @@ const translations = {
     converted_note_labor: "كما تم تعديل {v} من رصيد الأجور التي لم تكن نقدًا مستلمًا.",
     no_payments_today: "لا توجد مدفوعات مسجلة لهذا التاريخ.",
     stmt_col: "الكشف", client_col: "العميل",
+    tap_to_toggle_hint: "اضغط على الرقم لتحديد ما إذا كان محسوبًا أم لا.",
   },
 };
 
@@ -3711,19 +3713,52 @@ function DailyStatementsScreen() {
     };
   }, [selectedDate]);
 
-  const goldEntered = rows.filter((r) => r.gold21k > 0).reduce((s, r) => s + r.gold21k, 0);
-  const goldConverted = rows.filter((r) => r.gold21k < 0).reduce((s, r) => s + Math.abs(r.gold21k), 0);
-  const laborEntered = rows.filter((r) => r.labor > 0).reduce((s, r) => s + r.labor, 0);
-  const laborConverted = rows.filter((r) => r.labor < 0).reduce((s, r) => s + Math.abs(r.labor), 0);
+  const [overrides, setOverrides] = useState({}); // "<rowKey>:<field>" -> boolean
+
+  function isCounted(row, field) {
+    const key = row.key + ":" + field;
+    return Object.prototype.hasOwnProperty.call(overrides, key) ? overrides[key] : row[field] > 0;
+  }
+  function toggleCounted(row, field) {
+    const key = row.key + ":" + field;
+    setOverrides((prev) => ({ ...prev, [key]: !isCounted(row, field) }));
+  }
+
+  const goldEntered = rows.filter((r) => isCounted(r, "gold21k")).reduce((s, r) => s + r.gold21k, 0);
+  const goldExcluded = rows.filter((r) => !isCounted(r, "gold21k")).reduce((s, r) => s + Math.abs(r.gold21k), 0);
+  const laborEntered = rows.filter((r) => isCounted(r, "labor")).reduce((s, r) => s + r.labor, 0);
+  const laborExcluded = rows.filter((r) => !isCounted(r, "labor")).reduce((s, r) => s + Math.abs(r.labor), 0);
 
   return (
-    <div style={{ fontFamily: "'Inter', sans-serif" }}>
-      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 600, color: "#F3EEE3", marginBottom: 4 }}>
-        {t("daily_statements")}
-      </div>
-      <div style={{ fontSize: 12.5, color: "#8B7355", marginBottom: 18 }}>{t("daily_statements_desc")}</div>
+    <div style={{ fontFamily: "'Inter', sans-serif" }} className="daily-print-area">
+      <style>{`
+        @media print {
+          body *{ visibility:hidden; }
+          .daily-print-area, .daily-print-area *{ visibility:visible; }
+          .daily-print-area{ position:fixed; inset:0; background:#fff; color:#111; padding:24px; }
+          .daily-print-area .print-hide{ display:none !important; }
+          .daily-print-area .num-excluded{ color:#a3272c !important; }
+          .daily-print-area .num-included{ color:#111 !important; }
+          .daily-print-area .row-card{ background:#fff !important; border:1px solid #999 !important; }
+          .daily-print-area .row-card *{ color:#111 !important; }
+          .daily-print-area .row-card .num-excluded{ color:#a3272c !important; }
+          .daily-print-area .print-only{ display:block !important; }
+        }
+      `}</style>
 
-      <div style={{ marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+        <div>
+          <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 600, color: "#F3EEE3", marginBottom: 4 }}>
+            {t("daily_statements")}
+          </div>
+          <div style={{ fontSize: 12.5, color: "#8B7355", marginBottom: 18 }}>{t("daily_statements_desc")}</div>
+        </div>
+        <button onClick={() => window.print()} className="print-hide" style={{ ...smallBtn, flexShrink: 0 }}>
+          {t("print")}
+        </button>
+      </div>
+
+      <div style={{ marginBottom: 20 }} className="print-hide">
         <div style={{ fontSize: 11, color: "#8B7355", marginBottom: 4 }}>{t("date_label")}</div>
         <input
           type="date"
@@ -3731,6 +3766,9 @@ function DailyStatementsScreen() {
           onChange={(e) => setSelectedDate(e.target.value)}
           style={inputStyle}
         />
+      </div>
+      <div style={{ fontSize: 13, color: "#8B7355", marginBottom: 16, display: "none" }} className="print-only">
+        {t("date_label")}: {selectedDate}
       </div>
 
       {loading ? (
@@ -3742,16 +3780,19 @@ function DailyStatementsScreen() {
             <CustomStatCard label={t("money_entered")} value={money(laborEntered)} color="#7FAE7A" />
           </div>
 
-          {goldConverted > 0 && (
+          {goldExcluded > 0 && (
             <div style={{ fontSize: 11.5, color: "#B08A4E", marginBottom: 6 }}>
-              {t("converted_note", { v: grams(goldConverted).replace(" g", "") })}
+              {t("converted_note", { v: grams(goldExcluded).replace(" g", "") })}
             </div>
           )}
-          {laborConverted > 0 && (
+          {laborExcluded > 0 && (
             <div style={{ fontSize: 11.5, color: "#B08A4E", marginBottom: 6 }}>
-              {t("converted_note_labor", { v: money(laborConverted) })}
+              {t("converted_note_labor", { v: money(laborExcluded) })}
             </div>
           )}
+          <div style={{ fontSize: 11, color: "#8B7355", marginBottom: 6 }} className="print-hide">
+            {t("tap_to_toggle_hint")}
+          </div>
 
           <div style={{ marginTop: 16 }}>
             {rows.length === 0 ? (
@@ -3760,27 +3801,62 @@ function DailyStatementsScreen() {
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {rows.map((row) => (
-                  <div
-                    key={row.key}
-                    style={{ background: "#1C1913", border: "1px solid #3A3527", borderRadius: 10, padding: "0.7rem 0.9rem" }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 14, fontWeight: 600, color: "#F3EEE3" }}>
-                        {row.clientName || t("unlinked_tag")}
+                {rows.map((row) => {
+                  const laborCounted = isCounted(row, "labor");
+                  const goldCounted = isCounted(row, "gold21k");
+                  return (
+                    <div
+                      key={row.key}
+                      className="row-card"
+                      style={{ background: "#1C1913", border: "1px solid #3A3527", borderRadius: 10, padding: "0.7rem 0.9rem" }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                        <div style={{ fontFamily: "'Fraunces', serif", fontSize: 14, fontWeight: 600, color: "#F3EEE3" }}>
+                          {row.clientName || t("unlinked_tag")}
+                        </div>
+                        <div style={{ fontSize: 10.5, color: "#8B7355" }}>
+                          {t("stmt_col")} #{row.statementNo}
+                        </div>
                       </div>
-                      <div style={{ fontSize: 10.5, color: "#8B7355" }}>
-                        {t("stmt_col")} #{row.statementNo}
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
+                        <span style={{ color: "#8B7355" }}>{row.method}</span>
+                        <button
+                          type="button"
+                          onClick={() => toggleCounted(row, "labor")}
+                          className={laborCounted ? "num-included" : "num-excluded"}
+                          style={{
+                            background: "transparent",
+                            border: "none",
+                            padding: "2px 4px",
+                            cursor: "pointer",
+                            fontSize: 13,
+                            fontWeight: 600,
+                            color: laborCounted ? "#C9A227" : "#D4756B",
+                          }}
+                        >
+                          {money(row.labor)}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleCounted(row, "gold21k")}
+                          className={goldCounted ? "num-included" : "num-excluded"}
+                          style={{
+                            background: "transparent",
+                            border: "none",
+                            padding: "2px 4px",
+                            cursor: "pointer",
+                            fontSize: 13,
+                            fontWeight: 600,
+                            color: goldCounted ? "#C9A227" : "#D4756B",
+                          }}
+                        >
+                          {grams(row.gold21k)}
+                        </button>
                       </div>
+                      {row.note ? <div style={{ fontSize: 11.5, color: "#8B7355", marginTop: 3 }}>{row.note}</div> : null}
                     </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                      <span style={{ color: "#8B7355" }}>{row.method}</span>
-                      <span style={{ color: row.labor < 0 ? "#B08A4E" : "#C9A227" }}>{money(row.labor)}</span>
-                      <span style={{ color: row.gold21k < 0 ? "#B08A4E" : "#C9A227" }}>{grams(row.gold21k)}</span>
-                    </div>
-                    {row.note ? <div style={{ fontSize: 11.5, color: "#8B7355", marginTop: 3 }}>{row.note}</div> : null}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
