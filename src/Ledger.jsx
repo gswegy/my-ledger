@@ -84,6 +84,7 @@ const translations = {
     clear_rows_confirm: "Clear all rows?", clear_payments_confirm: "Clear all payment rows?",
     delete_receipt_confirm: "Delete this receipt? This can't be undone.",
     saved_posted: "Saved & posted to client", saved_unlinked: "Saved (not linked to a client)",
+    saved_posting_failed: "Saved, but posting to client failed — try again",
     save_failed: "Save failed", delete_failed: "Delete failed",
     reviews: "Reviews", assets_liabilities: "Assets & Liabilities", sales: "Sales",
     gold_section: "Gold", wages_section: "Wages", owed_to_you_card: "Owed to you", you_owe_card: "You owe",
@@ -169,6 +170,7 @@ const translations = {
     clear_rows_confirm: "مسح جميع الصفوف؟", clear_payments_confirm: "مسح جميع صفوف الدفع؟",
     delete_receipt_confirm: "حذف هذا الإيصال؟ لا يمكن التراجع عن هذا.",
     saved_posted: "تم الحفظ والترحيل إلى العميل", saved_unlinked: "تم الحفظ (غير مرتبط بعميل)",
+    saved_posting_failed: "تم الحفظ، لكن الترحيل إلى العميل فشل — حاول مرة أخرى",
     save_failed: "فشل الحفظ", delete_failed: "فشل الحذف",
     reviews: "المراجعات", assets_liabilities: "الأصول والالتزامات", sales: "المبيعات",
     gold_section: "ذهب", wages_section: "أجور", owed_to_you_card: "مستحق لك", you_owe_card: "أنت مدين",
@@ -414,22 +416,23 @@ function receiptTotals(data) {
 // Removes previously-posted statement ledger entries (by id) from a
 // client's gold/wages arrays. Used when a statement tied to a client is
 // deleted, or re-saved (so the old amounts don't linger alongside new ones).
+// Throws on failure instead of swallowing it, so a failed write never gets
+// mistaken for a successful one by the caller.
 async function removePostedEntries(clientId, posted) {
   if (!clientId || !posted) return;
   const idsToRemove = new Set(
     [posted.goldSaleId, posted.goldPaymentId, posted.wageSaleId, posted.wagePaymentId].filter(Boolean)
   );
   if (idsToRemove.size === 0) return;
-  try {
-    const data = await fetchLedgerFor(clientId);
-    const next = {
-      ...data,
-      gold: data.gold.filter((e) => !idsToRemove.has(e.id)),
-      wages: data.wages.filter((e) => !idsToRemove.has(e.id)),
-    };
-    await window.storage.set("ledger:" + clientId, JSON.stringify(next), false);
-  } catch (e) {
-    // best-effort cleanup; nothing more we can do here
+  const data = await fetchLedgerFor(clientId);
+  const next = {
+    ...data,
+    gold: data.gold.filter((e) => !idsToRemove.has(e.id)),
+    wages: data.wages.filter((e) => !idsToRemove.has(e.id)),
+  };
+  const result = await window.storage.set("ledger:" + clientId, JSON.stringify(next), false);
+  if (!result) {
+    throw new Error("Failed to update ledger for client " + clientId);
   }
 }
 
@@ -437,6 +440,7 @@ async function removePostedEntries(clientId, posted) {
 // ledgers as up to four dated entries (sale grams/labor add to balance,
 // payment 21k-gold/labor subtract from it), returning the new entries'
 // ids so they can be found and reversed later if the statement changes.
+// Throws on failure instead of returning as if it succeeded.
 async function postStatementToClient(clientId, statementNo, dateStr, totals) {
   const { totalGold, netLabor, totalPaymentGold21k, totalPaymentLabor } = totals;
   const data = await fetchLedgerFor(clientId);
@@ -465,7 +469,10 @@ async function postStatementToClient(clientId, statementNo, dateStr, totals) {
     posted.wagePaymentId = entry.id;
   }
 
-  await window.storage.set("ledger:" + clientId, JSON.stringify({ ...data, gold, wages }), false);
+  const result = await window.storage.set("ledger:" + clientId, JSON.stringify({ ...data, gold, wages }), false);
+  if (!result) {
+    throw new Error("Failed to write ledger for client " + clientId);
+  }
   return posted;
 }
 
@@ -2757,6 +2764,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
   const [discount, setDiscount] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
+  const [saveTone, setSaveTone] = useState("ok"); // "ok" | "warn" | "error"
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
@@ -2894,19 +2902,33 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
       const id = loadedId || uid();
       const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 
-      // Undo whatever was posted last time (if anything) before posting
-      // fresh amounts — covers edits to the totals and switching clients.
-      if (posted) {
-        await removePostedEntries(posted.clientId, posted);
-      }
+      // Post the new amounts first, then clean up whatever was posted
+      // before — in that order, so a failed post never leaves a client
+      // with neither the old nor the new numbers recorded. If posting
+      // fails, we fall back to the previous posted record untouched.
       let newPosted = null;
-      if (clientId) {
-        newPosted = await postStatementToClient(clientId, statementNo, dateStr, {
-          totalGold,
-          netLabor,
-          totalPaymentGold21k,
-          totalPaymentLabor,
-        });
+      let postingFailed = false;
+      try {
+        if (clientId) {
+          newPosted = await postStatementToClient(clientId, statementNo, dateStr, {
+            totalGold,
+            netLabor,
+            totalPaymentGold21k,
+            totalPaymentLabor,
+          });
+        }
+      } catch (e) {
+        postingFailed = true;
+        newPosted = posted || null;
+      }
+      if (!postingFailed && posted) {
+        try {
+          await removePostedEntries(posted.clientId, posted);
+        } catch (e) {
+          // The new amounts are safely posted; the old ones may linger as
+          // a duplicate until the next successful save cleans them up.
+          postingFailed = true;
+        }
       }
 
       const data = {
@@ -2958,8 +2980,15 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
 
       setLoadedId(id);
       setPosted(newPosted);
-      setSaveMessage(clientId ? t("saved_posted") : t("saved_unlinked"));
+      if (postingFailed) {
+        setSaveTone("warn");
+        setSaveMessage(t("saved_posting_failed"));
+      } else {
+        setSaveTone("ok");
+        setSaveMessage(clientId ? t("saved_posted") : t("saved_unlinked"));
+      }
     } catch (e) {
+      setSaveTone("error");
       setSaveMessage(t("save_failed"));
     } finally {
       setSaving(false);
@@ -2997,6 +3026,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
       );
       if (onDeleted) onDeleted();
     } catch (e) {
+      setSaveTone("error");
       setSaveMessage(t("delete_failed"));
       setDeleting(false);
     }
@@ -3404,7 +3434,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               {saveMessage ? (
-                <span style={{ fontSize: 11, color: saveMessage.startsWith("Saved") ? "#7FAE7A" : "#D4756B" }}>
+                <span style={{ fontSize: 11, color: saveTone === "ok" ? "#7FAE7A" : saveTone === "warn" ? "#C9A227" : "#D4756B" }}>
                   {saveMessage}
                 </span>
               ) : null}
