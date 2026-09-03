@@ -2297,7 +2297,6 @@ function PriceListSection({ categories, prices, onChange, onManageCategories }) 
                 value={drafts[cat.id] ?? ""}
                 onChange={(e) => setDrafts((d) => ({ ...d, [cat.id]: e.target.value }))}
                 onBlur={() => commit(cat.id)}
-                inputMode="decimal"
                 placeholder="—"
                 style={{ ...inputStyle, width: 80, textAlign: "right" }}
               />
@@ -2367,11 +2366,9 @@ function LedgerSection({ title, takeLabel, returnLabel, emptyText, entries, kind
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <input
-              inputMode="decimal"
               value={entryForm.amount}
               onChange={(e) => setEntryForm((f) => ({ ...f, amount: toEnglishDigits(e.target.value) }))}
               placeholder={kind === "gold" ? t("grams_ph") : t("amount_ph")}
-              inputMode="decimal"
               style={{ ...inputStyle, flex: 1 }}
             />
             <input
@@ -3252,7 +3249,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
 
             <div className="no-block">
               <div className="lbl">{t("no_label")}</div>
-              <input className="no-input" inputMode="decimal" value={statementNo} onChange={(e) => setStatementNo(toEnglishDigits(e.target.value))} />
+              <input className="no-input" value={statementNo} onChange={(e) => setStatementNo(toEnglishDigits(e.target.value))} />
             </div>
           </div>
 
@@ -3261,11 +3258,11 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
           <div className="meta">
             <div className="meta-row date-row">
               <label>{t("date_label")}</label>
-              <input placeholder="DD" inputMode="decimal" style={{ width: 34 }} value={day} onChange={(e) => setDay(toEnglishDigits(e.target.value))} />
+              <input placeholder="DD" style={{ width: 34 }} value={day} onChange={(e) => setDay(toEnglishDigits(e.target.value))} />
               <span className="sep">/</span>
-              <input placeholder="MM" inputMode="decimal" style={{ width: 34 }} value={month} onChange={(e) => setMonth(toEnglishDigits(e.target.value))} />
+              <input placeholder="MM" style={{ width: 34 }} value={month} onChange={(e) => setMonth(toEnglishDigits(e.target.value))} />
               <span className="sep">/</span>
-              <input placeholder="YYYY" inputMode="decimal" style={{ width: 56 }} value={year} onChange={(e) => setYear(toEnglishDigits(e.target.value))} />
+              <input placeholder="YYYY" style={{ width: 56 }} value={year} onChange={(e) => setYear(toEnglishDigits(e.target.value))} />
             </div>
             <div className="meta-row">
               <label>{t("note_label")}</label>
@@ -3349,13 +3346,13 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                     </select>
                   </td>
                   <td>
-                    <input type="text" inputMode="decimal" value={row.price} onChange={(e) => updateItem(row.id, "price", e.target.value)} />
+                    <input type="text" value={row.price} onChange={(e) => updateItem(row.id, "price", e.target.value)} />
                   </td>
                   <td>
-                    <input type="text" inputMode="decimal" value={row.labor} onChange={(e) => updateItem(row.id, "labor", e.target.value)} />
+                    <input type="text" value={row.labor} onChange={(e) => updateItem(row.id, "labor", e.target.value)} />
                   </td>
                   <td>
-                    <input type="text" inputMode="decimal" value={row.gram} onChange={(e) => updateItem(row.id, "gram", e.target.value)} />
+                    <input type="text" value={row.gram} onChange={(e) => updateItem(row.id, "gram", e.target.value)} />
                   </td>
                   <td>
                     <button
@@ -3382,7 +3379,6 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                 <td>
                   <input
                     type="text"
-                    inputMode="decimal"
                     value={discount}
                     onChange={(e) => setDiscount(toEnglishDigits(e.target.value))}
                     placeholder="0"
@@ -3434,7 +3430,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                     </select>
                   </td>
                   <td>
-                    <input type="text" inputMode="decimal" value={row.labor} onChange={(e) => updatePayment(row.id, "labor", e.target.value)} />
+                    <input type="text" value={row.labor} onChange={(e) => updatePayment(row.id, "labor", e.target.value)} />
                   </td>
                   <td style={row.method === "Bars" || row.method === "Money" ? { height: "auto", padding: "4px 2px" } : undefined}>
                     {row.method === "Bars" ? (
@@ -3442,7 +3438,6 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                         <div style={{ display: "flex", gap: 4 }}>
                           <input
                             type="text"
-                            inputMode="decimal"
                             placeholder={t("wt_g_ph")}
                             value={row.barWeight}
                             onChange={(e) => updatePayment(row.id, "barWeight", e.target.value)}
@@ -3450,7 +3445,6 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                           />
                           <input
                             type="text"
-                            inputMode="decimal"
                             placeholder={t("karat_ph")}
                             value={row.barKarat}
                             onChange={(e) => updatePayment(row.id, "barKarat", e.target.value)}
@@ -3466,7 +3460,6 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                         <div style={{ display: "flex", gap: 4 }}>
                           <input
                             type="text"
-                            inputMode="decimal"
                             placeholder={t("money_ph")}
                             value={row.moneyAmount}
                             onChange={(e) => updatePayment(row.id, "moneyAmount", e.target.value)}
@@ -3474,7 +3467,6 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                           />
                           <input
                             type="text"
-                            inputMode="decimal"
                             placeholder={t("gold_price_ph")}
                             value={row.goldPrice}
                             onChange={(e) => updatePayment(row.id, "goldPrice", e.target.value)}
@@ -3486,7 +3478,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                         </div>
                       </div>
                     ) : (
-                      <input type="text" inputMode="decimal" value={row.gold21k} onChange={(e) => updatePayment(row.id, "gold21k", e.target.value)} />
+                      <input type="text" value={row.gold21k} onChange={(e) => updatePayment(row.id, "gold21k", e.target.value)} />
                     )}
                   </td>
                   <td>
@@ -3518,7 +3510,6 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                 <td>
                   <input
                     type="text"
-                    inputMode="decimal"
                     value={totalPaidLabor}
                     onChange={(e) => setTotalPaidLabor(toEnglishDigits(e.target.value))}
                   />
@@ -3526,7 +3517,6 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                 <td>
                   <input
                     type="text"
-                    inputMode="decimal"
                     value={totalPaidGold21k}
                     onChange={(e) => setTotalPaidGold21k(toEnglishDigits(e.target.value))}
                   />
