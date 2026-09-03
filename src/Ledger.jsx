@@ -90,6 +90,9 @@ const translations = {
     clients_checked: "{n} client(s) checked", error_label: " — error: {e}",
     sales_desc: "Total gold and wages taken by clients, by month", no_sales_yet: "No sales recorded yet.",
     gold_sold: "Gold sold", wages_sold: "Wages sold",
+    transactions: "Transactions",
+    transactions_desc: "Pick a date range to see every client's gold and wage movements in that period — including statements not linked to a client.",
+    unlinked_tag: "Unlinked statement", no_transactions: "No movements in this period.",
   },
   ar: {
     home: "الرئيسية", app_title: "الذهب الحديث", nav_clients: "العملاء", nav_receipts: "الإيصالات", nav_reviews: "المراجعات",
@@ -172,6 +175,9 @@ const translations = {
     clients_checked: "تم فحص {n} عميل/عملاء", error_label: " — خطأ: {e}",
     sales_desc: "إجمالي الذهب والأجور المأخوذة من العملاء، حسب الشهر", no_sales_yet: "لا توجد مبيعات مسجلة بعد.",
     gold_sold: "الذهب المباع", wages_sold: "الأجور المباعة",
+    transactions: "المعاملات",
+    transactions_desc: "اختر نطاقًا زمنيًا لعرض حركات الذهب والأجور لكل عميل خلال تلك الفترة — بما في ذلك الإيصالات غير المرتبطة بعميل.",
+    unlinked_tag: "إيصال غير مرتبط", no_transactions: "لا توجد حركات في هذه الفترة.",
   },
 };
 
@@ -388,6 +394,21 @@ function distinctBooks(entries) {
 
 function entriesForBook(entries, book) {
   return (entries || []).filter((e) => (book === "current" ? !e.book : e.book === book));
+}
+
+// Recomputes a saved receipt's sale/payment totals from its raw items and
+// payments — used by the Transactions report for statements that aren't
+// linked to a client (so there's no posted ledger entry to read instead).
+function receiptTotals(data) {
+  const items = data.items || [];
+  const payments = data.payments || [];
+  const totalGold = items.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.gram)) || 0), 0);
+  const totalLabor = items.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.labor)) || 0), 0);
+  const discountAmount = parseFloat(toEnglishDigits(data.discount)) || 0;
+  const netLabor = totalLabor - discountAmount;
+  const totalPaymentLabor = payments.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.labor)) || 0), 0);
+  const totalPaymentGold21k = payments.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.gold21k)) || 0), 0);
+  return { totalGold, netLabor, totalPaymentGold21k, totalPaymentLabor };
 }
 
 // Removes previously-posted statement ledger entries (by id) from a
@@ -3413,7 +3434,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
 
 function ReviewsTab() {
   const { t } = useLang();
-  const [view, setView] = useState(null); // null | "assets-liabilities" | "sales"
+  const [view, setView] = useState(null); // null | "assets-liabilities" | "sales" | "transactions"
 
   if (view === "assets-liabilities") {
     return (
@@ -3437,6 +3458,17 @@ function ReviewsTab() {
     );
   }
 
+  if (view === "transactions") {
+    return (
+      <div>
+        <button onClick={() => setView(null)} style={backBtn}>
+          &larr; {t("reviews")}
+        </button>
+        <TransactionsScreen />
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -3452,6 +3484,9 @@ function ReviewsTab() {
         </button>
         <button onClick={() => setView("sales")} style={bigHomeBtn}>
           {t("sales")}
+        </button>
+        <button onClick={() => setView("transactions")} style={bigHomeBtn}>
+          {t("transactions")}
         </button>
       </div>
     </div>
@@ -3663,6 +3698,173 @@ function MonthSalesCard({ label, gold, wages, t }) {
       <div style={{ display: "flex", gap: 10 }}>
         <SummaryCard label={t("gold_sold")} value={grams(gold)} color="#C9A227" />
         <SummaryCard label={t("wages_sold")} value={money(wages)} color="#C9A227" />
+      </div>
+    </div>
+  );
+}
+
+// For a chosen date range, shows every client's gold/wage movements —
+// pulled from their posted ledger entries — plus, grouped by the typed
+// name, any statement that was saved without being linked to a client
+// (those never post ledger entries, so their totals are recomputed
+// straight from the saved items/payments instead).
+function TransactionsScreen() {
+  const { t } = useLang();
+  const [fromDate, setFromDate] = useState(todayStr());
+  const [toDate, setToDate] = useState(todayStr());
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      let customers = [];
+      try {
+        const res = await window.storage.get("customers-list", false);
+        customers = res ? JSON.parse(res.value) : [];
+      } catch (e) {
+        customers = [];
+      }
+
+      let ledgersById = {};
+      try {
+        ledgersById = await fetchAllLedgers(customers);
+      } catch (e) {
+        ledgersById = {};
+      }
+
+      const clientRows = customers.map((c) => {
+        const ledger = ledgersById[c.id] || emptyLedger();
+        const goldInRange = (ledger.gold || []).filter((e) => e.date && e.date >= fromDate && e.date <= toDate);
+        const wageInRange = (ledger.wages || []).filter((e) => e.date && e.date >= fromDate && e.date <= toDate);
+        return {
+          key: "c:" + c.id,
+          name: c.name,
+          clientId: c.id,
+          goldTaken: goldInRange.filter((e) => e.amount > 0).reduce((s, e) => s + e.amount, 0),
+          goldPaid: goldInRange.filter((e) => e.amount < 0).reduce((s, e) => s + Math.abs(e.amount), 0),
+          wageTaken: wageInRange.filter((e) => e.amount > 0).reduce((s, e) => s + e.amount, 0),
+          wagePaid: wageInRange.filter((e) => e.amount < 0).reduce((s, e) => s + Math.abs(e.amount), 0),
+        };
+      });
+
+      let unlinkedRows = [];
+      try {
+        const listRes = await window.storage.get("receipts-list", false);
+        const list = listRes ? JSON.parse(listRes.value) : [];
+        const inRange = list.filter((r) => r.date && r.date >= fromDate && r.date <= toDate);
+        const fullReceipts = await Promise.all(
+          inRange.map(async (r) => {
+            try {
+              const res = await window.storage.get("receipt:" + r.id, false);
+              return res ? JSON.parse(res.value) : null;
+            } catch (e) {
+              return null;
+            }
+          })
+        );
+        const grouped = {};
+        fullReceipts.forEach((data) => {
+          if (!data || data.clientId) return; // linked ones already show via their ledger, above
+          const name = (data.clientName || "").trim();
+          if (!name) return;
+          const totals = receiptTotals(data);
+          const key = "u:" + name.toLowerCase();
+          if (!grouped[key]) {
+            grouped[key] = { key, name, clientId: null, goldTaken: 0, goldPaid: 0, wageTaken: 0, wagePaid: 0 };
+          }
+          grouped[key].goldTaken += totals.totalGold;
+          grouped[key].goldPaid += totals.totalPaymentGold21k;
+          grouped[key].wageTaken += totals.netLabor;
+          grouped[key].wagePaid += totals.totalPaymentLabor;
+        });
+        unlinkedRows = Object.values(grouped);
+      } catch (e) {
+        unlinkedRows = [];
+      }
+
+      const all = [...clientRows, ...unlinkedRows]
+        .filter((r) => r.goldTaken || r.goldPaid || r.wageTaken || r.wagePaid)
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      if (!cancelled) {
+        setRows(all);
+        setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fromDate, toDate]);
+
+  return (
+    <div style={{ fontFamily: "'Inter', sans-serif" }}>
+      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 600, color: "#F3EEE3", marginBottom: 4 }}>
+        {t("transactions")}
+      </div>
+      <div style={{ fontSize: 12.5, color: "#8B7355", marginBottom: 18 }}>{t("transactions_desc")}</div>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 11, color: "#8B7355", marginBottom: 4 }}>{t("from_label")}</div>
+          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={inputStyle} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 11, color: "#8B7355", marginBottom: 4 }}>{t("to_label")}</div>
+          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={inputStyle} />
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "2rem 0" }}>{t("loading")}</div>
+      ) : rows.length === 0 ? (
+        <div style={{ color: "#8B7355", fontSize: 14, textAlign: "center", padding: "2rem 0" }}>{t("no_transactions")}</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {rows.map((row) => (
+            <TransactionRow key={row.key} row={row} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TransactionRow({ row }) {
+  const { t } = useLang();
+  return (
+    <div style={{ background: "#1C1913", border: "1px solid #3A3527", borderRadius: 10, padding: "0.75rem 0.9rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 8 }}>
+        <div style={{ fontFamily: "'Fraunces', serif", fontSize: 15, fontWeight: 600, color: "#F3EEE3" }}>{row.name}</div>
+        {!row.clientId && (
+          <div
+            style={{
+              fontSize: 9.5,
+              color: "#8B7355",
+              border: "1px solid #3A3527",
+              borderRadius: 6,
+              padding: "1px 6px",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {t("unlinked_tag")}
+          </div>
+        )}
+      </div>
+      <div style={{ marginBottom: 6 }}>
+        <div style={{ fontSize: 10.5, color: "#8B7355", marginBottom: 2 }}>{t("tab_gold")}</div>
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <span style={{ fontSize: 13, color: "#D4756B" }}>{t("taken")}: {grams(row.goldTaken)}</span>
+          <span style={{ fontSize: 13, color: "#7FAE7A" }}>{t("paid_back_stat")}: {grams(row.goldPaid)}</span>
+        </div>
+      </div>
+      <div>
+        <div style={{ fontSize: 10.5, color: "#8B7355", marginBottom: 2 }}>{t("tab_wages")}</div>
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <span style={{ fontSize: 13, color: "#D4756B" }}>{t("taken")}: {money(row.wageTaken)}</span>
+          <span style={{ fontSize: 13, color: "#7FAE7A" }}>{t("paid_back_stat")}: {money(row.wagePaid)}</span>
+        </div>
       </div>
     </div>
   );
