@@ -103,6 +103,8 @@ const translations = {
     no_payments_today: "No payments recorded for this date.",
     stmt_col: "Statement", client_col: "Client",
     tap_to_toggle_hint: "Tap a number to mark it counted or not counted.",
+    saved: "Saved", count_option: "Count", dont_count_option: "Don't count",
+    save_choices: "Save",
   },
   ar: {
     home: "الرئيسية", app_title: "الذهب الحديث", nav_clients: "العملاء", nav_receipts: "الإيصالات", nav_reviews: "المراجعات",
@@ -198,6 +200,8 @@ const translations = {
     no_payments_today: "لا توجد مدفوعات مسجلة لهذا التاريخ.",
     stmt_col: "الكشف", client_col: "العميل",
     tap_to_toggle_hint: "اضغط على الرقم لتحديد ما إذا كان محسوبًا أم لا.",
+    saved: "تم الحفظ", count_option: "احسبه", dont_count_option: "لا تحسبه",
+    save_choices: "حفظ",
   },
 };
 
@@ -2601,6 +2605,24 @@ const smallBtn = {
   cursor: "pointer",
 };
 
+const choiceBtnStyle = {
+  background: "#232019",
+  border: "1px solid #3A3527",
+  borderRadius: 7,
+  padding: "0.3rem 0.65rem",
+  color: "#F3EEE3",
+  fontSize: 11.5,
+  fontWeight: 500,
+  cursor: "pointer",
+};
+
+const choiceBtnActiveStyle = {
+  background: "#C9A227",
+  borderColor: "#C9A227",
+  color: "#1C1913",
+  fontWeight: 700,
+};
+
 const backBtn = {
   display: "flex",
   alignItems: "center",
@@ -3662,11 +3684,19 @@ function DailyStatementsScreen() {
   const [selectedDate, setSelectedDate] = useState(todayStr());
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]);
+  const [overrides, setOverrides] = useState({}); // "<rowKey>:<field>" -> boolean
+  const [activeChoice, setActiveChoice] = useState(null); // { key, field } | null
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
+  const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setActiveChoice(null);
+      setSaveMessage("");
+      setDirty(false);
       let detailRows = [];
       try {
         const listRes = await window.storage.get("receipts-list", false);
@@ -3703,8 +3733,19 @@ function DailyStatementsScreen() {
         detailRows = [];
       }
 
+      // Restore any saved counted/not-counted choices for this date.
+      let savedOverrides = {};
+      try {
+        const res = await window.storage.get("daily-statement:" + selectedDate, false);
+        const parsed = res ? JSON.parse(res.value) : null;
+        savedOverrides = (parsed && parsed.overrides) || {};
+      } catch (e) {
+        savedOverrides = {};
+      }
+
       if (!cancelled) {
         setRows(detailRows);
+        setOverrides(savedOverrides);
         setLoading(false);
       }
     })();
@@ -3713,15 +3754,35 @@ function DailyStatementsScreen() {
     };
   }, [selectedDate]);
 
-  const [overrides, setOverrides] = useState({}); // "<rowKey>:<field>" -> boolean
-
   function isCounted(row, field) {
     const key = row.key + ":" + field;
     return Object.prototype.hasOwnProperty.call(overrides, key) ? overrides[key] : row[field] > 0;
   }
-  function toggleCounted(row, field) {
+  function chooseCounted(row, field, counted) {
     const key = row.key + ":" + field;
-    setOverrides((prev) => ({ ...prev, [key]: !isCounted(row, field) }));
+    setOverrides((prev) => ({ ...prev, [key]: counted }));
+    setActiveChoice(null);
+    setDirty(true);
+  }
+
+  async function saveOverrides() {
+    setSaving(true);
+    setSaveMessage("");
+    try {
+      const result = await window.storage.set(
+        "daily-statement:" + selectedDate,
+        JSON.stringify({ overrides }),
+        false
+      );
+      if (!result) throw new Error("save failed");
+      setDirty(false);
+      setSaveMessage(t("saved"));
+    } catch (e) {
+      setSaveMessage(t("save_failed"));
+    } finally {
+      setSaving(false);
+      setTimeout(() => setSaveMessage(""), 2500);
+    }
   }
 
   const goldEntered = rows.filter((r) => isCounted(r, "gold21k")).reduce((s, r) => s + r.gold21k, 0);
@@ -3753,9 +3814,19 @@ function DailyStatementsScreen() {
           </div>
           <div style={{ fontSize: 12.5, color: "#8B7355", marginBottom: 18 }}>{t("daily_statements_desc")}</div>
         </div>
-        <button onClick={() => window.print()} className="print-hide" style={{ ...smallBtn, flexShrink: 0 }}>
-          {t("print")}
-        </button>
+        <div className="print-hide" style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={saveOverrides} disabled={saving || !dirty} style={smallBtn}>
+              {saving ? t("saving") : t("save_choices")}
+            </button>
+            <button onClick={() => window.print()} style={smallBtn}>
+              {t("print")}
+            </button>
+          </div>
+          {saveMessage ? (
+            <span style={{ fontSize: 11, color: saveMessage === t("saved") ? "#7FAE7A" : "#D4756B" }}>{saveMessage}</span>
+          ) : null}
+        </div>
       </div>
 
       <div style={{ marginBottom: 20 }} className="print-hide">
@@ -3804,6 +3875,8 @@ function DailyStatementsScreen() {
                 {rows.map((row) => {
                   const laborCounted = isCounted(row, "labor");
                   const goldCounted = isCounted(row, "gold21k");
+                  const laborChoiceOpen = activeChoice && activeChoice.key === row.key && activeChoice.field === "labor";
+                  const goldChoiceOpen = activeChoice && activeChoice.key === row.key && activeChoice.field === "gold21k";
                   return (
                     <div
                       key={row.key}
@@ -3822,7 +3895,7 @@ function DailyStatementsScreen() {
                         <span style={{ color: "#8B7355" }}>{row.method}</span>
                         <button
                           type="button"
-                          onClick={() => toggleCounted(row, "labor")}
+                          onClick={() => setActiveChoice(laborChoiceOpen ? null : { key: row.key, field: "labor" })}
                           className={laborCounted ? "num-included" : "num-excluded"}
                           style={{
                             background: "transparent",
@@ -3838,7 +3911,7 @@ function DailyStatementsScreen() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => toggleCounted(row, "gold21k")}
+                          onClick={() => setActiveChoice(goldChoiceOpen ? null : { key: row.key, field: "gold21k" })}
                           className={goldCounted ? "num-included" : "num-excluded"}
                           style={{
                             background: "transparent",
@@ -3853,6 +3926,42 @@ function DailyStatementsScreen() {
                           {grams(row.gold21k)}
                         </button>
                       </div>
+                      {laborChoiceOpen && (
+                        <div className="print-hide" style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 6 }}>
+                          <button
+                            type="button"
+                            onClick={() => chooseCounted(row, "labor", true)}
+                            style={{ ...choiceBtnStyle, ...(laborCounted ? choiceBtnActiveStyle : null) }}
+                          >
+                            {t("count_option")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => chooseCounted(row, "labor", false)}
+                            style={{ ...choiceBtnStyle, ...(!laborCounted ? choiceBtnActiveStyle : null) }}
+                          >
+                            {t("dont_count_option")}
+                          </button>
+                        </div>
+                      )}
+                      {goldChoiceOpen && (
+                        <div className="print-hide" style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 6 }}>
+                          <button
+                            type="button"
+                            onClick={() => chooseCounted(row, "gold21k", true)}
+                            style={{ ...choiceBtnStyle, ...(goldCounted ? choiceBtnActiveStyle : null) }}
+                          >
+                            {t("count_option")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => chooseCounted(row, "gold21k", false)}
+                            style={{ ...choiceBtnStyle, ...(!goldCounted ? choiceBtnActiveStyle : null) }}
+                          >
+                            {t("dont_count_option")}
+                          </button>
+                        </div>
+                      )}
                       {row.note ? <div style={{ fontSize: 11.5, color: "#8B7355", marginTop: 3 }}>{row.note}</div> : null}
                     </div>
                   );
