@@ -80,6 +80,8 @@ const translations = {
     select_method_ph: "Select method…", method_bars: "Bars", method_scrap: "Scrap", method_money: "Cash Transfer", method_transfer: "Transfer",
     method_labor: "Labor",
     method_cash_to_grams: "Cash to Grams", method_grams_to_cash: "Grams to Cash",
+    method_gold_credit: "Buy Gold for Labor Credit",
+    buyback_grams_ph: "Gold (g)",
     wt_g_ph: "Wt (g)", karat_ph: "Karat", money_ph: "Money", gold_price_ph: "Gold price", gold_g_ph: "Gold (g)",
     total_paid: "Total Paid", saving: "Saving…", deleting: "Deleting…", print: "Print",
     foot_note: "Prices subject to the daily gold rate",
@@ -180,6 +182,8 @@ const translations = {
     select_method_ph: "اختر الطريقة…", method_bars: "سبائك", method_scrap: "كسر", method_money: "تحويل نقدي", method_transfer: "تحويل",
     method_labor: "أجرة",
     method_cash_to_grams: "نقد إلى غرامات", method_grams_to_cash: "غرامات إلى نقد",
+    method_gold_credit: "شراء ذهب مقابل رصيد أجرة",
+    buyback_grams_ph: "الذهب (غ)",
     wt_g_ph: "الوزن (غ)", karat_ph: "العيار", money_ph: "المبلغ", gold_price_ph: "سعر الذهب", gold_g_ph: "الذهب (غ)",
     total_paid: "إجمالي المدفوع", saving: "جارٍ الحفظ…", deleting: "جارٍ الحذف…", print: "طباعة",
     foot_note: "الأسعار قابلة للتغيير حسب سعر الذهب اليومي",
@@ -349,6 +353,9 @@ function methodLabel(method, t) {
     case "Money": return t("method_money");
     case "Transfer": return t("method_transfer");
     case "Labor": return t("method_labor");
+    case "CashToGrams": return t("method_cash_to_grams");
+    case "GramsToCash": return t("method_grams_to_cash");
+    case "GoldCredit": return t("method_gold_credit");
     default: return method;
   }
 }
@@ -2836,6 +2843,7 @@ const emptyPaymentRow = () => ({
   barKarat: "",
   moneyAmount: "",
   goldPrice: "",
+  buybackGrams: "",
   note: "",
 });
 
@@ -2996,7 +3004,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
       })
     );
   }
-  const paymentNumericFields = ["labor", "gold21k", "barWeight", "barKarat", "moneyAmount", "goldPrice"];
+  const paymentNumericFields = ["labor", "gold21k", "barWeight", "barKarat", "moneyAmount", "goldPrice", "buybackGrams"];
   function updatePayment(id, field, value) {
     const v = paymentNumericFields.includes(field) ? toEnglishDigits(value) : value;
     setPayments((prev) =>
@@ -3030,6 +3038,17 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
         // in the money (stored in Labor), never the other way around.
         if (r.method === "GramsToCash" && (field === "gold21k" || field === "goldPrice")) {
           next.labor = moneyFromGoldPrice(next.gold21k, next.goldPrice);
+        }
+        // Buy Gold for Labor Credit: the gold and labor move in *opposite*
+        // directions — typing a positive gram amount and a price fills in
+        // a negative 21k-gold (cancelling the physical excess) and a
+        // positive labor credit (what that gold is worth toward what they
+        // owe), without any manual sign math.
+        if (r.method === "GoldCredit" && (field === "buybackGrams" || field === "goldPrice")) {
+          const g = parseFloat(toEnglishDigits(next.buybackGrams)) || 0;
+          const p = parseFloat(toEnglishDigits(next.goldPrice)) || 0;
+          next.gold21k = g ? String(-truncate2(g)) : "";
+          next.labor = g && p ? String(truncate2(g * p)) : "";
         }
         return next;
       })
@@ -3529,10 +3548,11 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                       <option value="Labor">{t("method_labor")}</option>
                       <option value="CashToGrams">{t("method_cash_to_grams")}</option>
                       <option value="GramsToCash">{t("method_grams_to_cash")}</option>
+                      <option value="GoldCredit">{t("method_gold_credit")}</option>
                     </select>
                   </td>
                   <td>
-                    {row.method === "GramsToCash" ? (
+                    {row.method === "GramsToCash" || row.method === "GoldCredit" ? (
                       <input type="text" value={row.labor} readOnly style={{ color: "var(--gold-deep)", fontWeight: 700 }} />
                     ) : (
                       <input type="text" value={row.labor} onChange={(e) => updatePayment(row.id, "labor", e.target.value)} />
@@ -3540,7 +3560,11 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                   </td>
                   <td
                     style={
-                      row.method === "Bars" || row.method === "Money" || row.method === "CashToGrams" || row.method === "GramsToCash"
+                      row.method === "Bars" ||
+                      row.method === "Money" ||
+                      row.method === "CashToGrams" ||
+                      row.method === "GramsToCash" ||
+                      row.method === "GoldCredit"
                         ? { height: "auto", padding: "4px 2px" }
                         : undefined
                     }
@@ -3632,6 +3656,28 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                             onChange={(e) => updatePayment(row.id, "goldPrice", e.target.value)}
                             style={{ fontSize: 11, textAlign: "center" }}
                           />
+                        </div>
+                      </div>
+                    ) : row.method === "GoldCredit" ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <input
+                            type="text"
+                            placeholder={t("buyback_grams_ph")}
+                            value={row.buybackGrams}
+                            onChange={(e) => updatePayment(row.id, "buybackGrams", e.target.value)}
+                            style={{ fontSize: 11, textAlign: "center" }}
+                          />
+                          <input
+                            type="text"
+                            placeholder={t("gold_price_ph")}
+                            value={row.goldPrice}
+                            onChange={(e) => updatePayment(row.id, "goldPrice", e.target.value)}
+                            style={{ fontSize: 11, textAlign: "center" }}
+                          />
+                        </div>
+                        <div style={{ textAlign: "center", fontSize: 12, fontWeight: 700, color: "var(--gold-deep)" }}>
+                          {row.gold21k ? `${row.gold21k} g` : "—"}
                         </div>
                       </div>
                     ) : (
@@ -3895,6 +3941,10 @@ function DailyStatementsScreen() {
     // is the mirror: only the gold side is real gold in.
     if (row.method === "CashToGrams") return field === "labor";
     if (row.method === "GramsToCash") return field === "gold21k";
+    // Buy Gold for Labor Credit is a pure internal adjustment — the
+    // negative gold cancels an earlier overage and the positive labor is
+    // a credit, neither of which is new gold or cash actually arriving.
+    if (row.method === "GoldCredit") return false;
     return row[field] > 0;
   }
   function chooseCounted(row, field, counted) {
@@ -4704,3 +4754,4 @@ function LedgerHome() {
     </div>
   );
 }
+
