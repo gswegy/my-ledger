@@ -79,6 +79,7 @@ const translations = {
     method_col: "Method", gold21k_col: "21k Gold", notes_col: "Notes",
     select_method_ph: "Select method…", method_bars: "Bars", method_scrap: "Scrap", method_money: "Cash Transfer", method_transfer: "Transfer",
     method_labor: "Labor",
+    method_cash_to_grams: "Cash to Grams", method_grams_to_cash: "Grams to Cash",
     wt_g_ph: "Wt (g)", karat_ph: "Karat", money_ph: "Money", gold_price_ph: "Gold price", gold_g_ph: "Gold (g)",
     total_paid: "Total Paid", saving: "Saving…", deleting: "Deleting…", print: "Print",
     foot_note: "Prices subject to the daily gold rate",
@@ -178,6 +179,7 @@ const translations = {
     method_col: "الطريقة", gold21k_col: "ذهب عيار 21", notes_col: "ملاحظات",
     select_method_ph: "اختر الطريقة…", method_bars: "سبائك", method_scrap: "كسر", method_money: "تحويل نقدي", method_transfer: "تحويل",
     method_labor: "أجرة",
+    method_cash_to_grams: "نقد إلى غرامات", method_grams_to_cash: "غرامات إلى نقد",
     wt_g_ph: "الوزن (غ)", karat_ph: "العيار", money_ph: "المبلغ", gold_price_ph: "سعر الذهب", gold_g_ph: "الذهب (غ)",
     total_paid: "إجمالي المدفوع", saving: "جارٍ الحفظ…", deleting: "جارٍ الحذف…", print: "طباعة",
     foot_note: "الأسعار قابلة للتغيير حسب سعر الذهب اليومي",
@@ -3019,6 +3021,16 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
             else if (next.gold21k) next.moneyAmount = moneyFromGoldPrice(next.gold21k, next.goldPrice);
           }
         }
+        // Cash to Grams: one direction only — money + price always fill
+        // in the grams, never the other way around.
+        if (r.method === "CashToGrams" && (field === "moneyAmount" || field === "goldPrice")) {
+          next.gold21k = computeMoneyGold21k(next.moneyAmount, next.goldPrice);
+        }
+        // Grams to Cash: one direction only — grams + price always fill
+        // in the money (stored in Labor), never the other way around.
+        if (r.method === "GramsToCash" && (field === "gold21k" || field === "goldPrice")) {
+          next.labor = moneyFromGoldPrice(next.gold21k, next.goldPrice);
+        }
         return next;
       })
     );
@@ -3516,12 +3528,24 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                       <option value="Money">{t("method_money")}</option>
                       <option value="Transfer">{t("method_transfer")}</option>
                       <option value="Labor">{t("method_labor")}</option>
+                      <option value="CashToGrams">{t("method_cash_to_grams")}</option>
+                      <option value="GramsToCash">{t("method_grams_to_cash")}</option>
                     </select>
                   </td>
                   <td>
-                    <input type="text" value={row.labor} onChange={(e) => updatePayment(row.id, "labor", e.target.value)} />
+                    {row.method === "GramsToCash" ? (
+                      <input type="text" value={row.labor} readOnly style={{ color: "var(--gold-deep)", fontWeight: 700 }} />
+                    ) : (
+                      <input type="text" value={row.labor} onChange={(e) => updatePayment(row.id, "labor", e.target.value)} />
+                    )}
                   </td>
-                  <td style={row.method === "Bars" || row.method === "Money" ? { height: "auto", padding: "4px 2px" } : undefined}>
+                  <td
+                    style={
+                      row.method === "Bars" || row.method === "Money" || row.method === "CashToGrams" || row.method === "GramsToCash"
+                        ? { height: "auto", padding: "4px 2px" }
+                        : undefined
+                    }
+                  >
                     {row.method === "Bars" ? (
                       <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                         <div style={{ display: "flex", gap: 4 }}>
@@ -3569,6 +3593,47 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                           onChange={(e) => updatePayment(row.id, "gold21k", e.target.value)}
                           style={{ fontSize: 12, fontWeight: 700, color: "var(--gold-deep)", textAlign: "center" }}
                         />
+                      </div>
+                    ) : row.method === "CashToGrams" ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <input
+                            type="text"
+                            placeholder={t("money_ph")}
+                            value={row.moneyAmount}
+                            onChange={(e) => updatePayment(row.id, "moneyAmount", e.target.value)}
+                            style={{ fontSize: 11, textAlign: "center" }}
+                          />
+                          <input
+                            type="text"
+                            placeholder={t("gold_price_ph")}
+                            value={row.goldPrice}
+                            onChange={(e) => updatePayment(row.id, "goldPrice", e.target.value)}
+                            style={{ fontSize: 11, textAlign: "center" }}
+                          />
+                        </div>
+                        <div style={{ textAlign: "center", fontSize: 12, fontWeight: 700, color: "var(--gold-deep)" }}>
+                          {row.gold21k ? `${row.gold21k} g` : "—"}
+                        </div>
+                      </div>
+                    ) : row.method === "GramsToCash" ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <input
+                            type="text"
+                            placeholder={t("gold_g_ph")}
+                            value={row.gold21k}
+                            onChange={(e) => updatePayment(row.id, "gold21k", e.target.value)}
+                            style={{ fontSize: 11, textAlign: "center" }}
+                          />
+                          <input
+                            type="text"
+                            placeholder={t("gold_price_ph")}
+                            value={row.goldPrice}
+                            onChange={(e) => updatePayment(row.id, "goldPrice", e.target.value)}
+                            style={{ fontSize: 11, textAlign: "center" }}
+                          />
+                        </div>
                       </div>
                     ) : (
                       <input type="text" value={row.gold21k} onChange={(e) => updatePayment(row.id, "gold21k", e.target.value)} />
