@@ -176,7 +176,7 @@ const translations = {
     select_category_ph: "اختر الفئة…", total_label: "الإجمالي", discount_label: "الخصم",
     add_row: "+ إضافة صف", clear: "مسح", payments_section: "المدفوعات",
     method_col: "الطريقة", gold21k_col: "ذهب عيار 21", notes_col: "ملاحظات",
-    select_method_ph: "اختر الطريقة…", method_bars: "سبائك", method_scrap: "كسر", method_money: "نقدًا", method_transfer: "تحويل",
+    select_method_ph: "اختر الطريقة…", method_bars: "سبائك", method_scrap: "كسر", method_money: "تدريب نقدًا", method_transfer: "تحويل",
     method_labor: "أجرة",
     wt_g_ph: "الوزن (غ)", karat_ph: "العيار", money_ph: "المبلغ", gold_price_ph: "سعر الذهب",
     total_paid: "إجمالي المدفوع", saving: "جارٍ الحفظ…", deleting: "جارٍ الحذف…", print: "طباعة",
