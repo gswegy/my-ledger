@@ -3797,6 +3797,21 @@ function DailyStatementsScreen() {
     setDirty(true);
   }
 
+  // Same idea as isCounted/chooseCounted, but for a whole statement's
+  // "Total Paid" override value rather than one payment row's field —
+  // it defaults to counted, matching how it always behaved before this
+  // toggle existed.
+  function isStatementOverrideCounted(statementId) {
+    const key = "stmt:" + statementId + ":laborOverride";
+    return Object.prototype.hasOwnProperty.call(overrides, key) ? overrides[key] : true;
+  }
+  function chooseStatementOverrideCounted(statementId, counted) {
+    const key = "stmt:" + statementId + ":laborOverride";
+    setOverrides((prev) => ({ ...prev, [key]: counted }));
+    setActiveChoice(null);
+    setDirty(true);
+  }
+
   async function saveOverrides() {
     setSaving(true);
     setSaveMessage("");
@@ -3823,16 +3838,25 @@ function DailyStatementsScreen() {
   // Money entered: a statement whose "Total Paid" box has a number uses
   // that figure once for its whole contribution, instead of summing its
   // individual payment rows — those rows still display below for
-  // reference, but don't separately feed the total in that case.
+  // reference, but don't separately feed the total in that case. Each
+  // override value gets its own count/don't-count toggle, same as a
+  // normal row.
   const overriddenStatementIds = new Set(Object.keys(laborOverrides));
-  const laborFromOverrides = Object.values(laborOverrides).reduce((s, v) => s + v, 0);
+  const laborFromOverrides = Object.entries(laborOverrides)
+    .filter(([id]) => isStatementOverrideCounted(id))
+    .reduce((s, [, v]) => s + v, 0);
+  const laborOverridesExcluded = Object.entries(laborOverrides)
+    .filter(([id]) => !isStatementOverrideCounted(id))
+    .reduce((s, [, v]) => s + Math.abs(v), 0);
   const laborFromRows = rows
     .filter((r) => !overriddenStatementIds.has(r.statementId) && isCounted(r, "labor"))
     .reduce((s, r) => s + r.labor, 0);
   const laborEntered = laborFromOverrides + laborFromRows;
-  const laborExcluded = rows
-    .filter((r) => !overriddenStatementIds.has(r.statementId) && !isCounted(r, "labor"))
-    .reduce((s, r) => s + Math.abs(r.labor), 0);
+  const laborExcluded =
+    laborOverridesExcluded +
+    rows
+      .filter((r) => !overriddenStatementIds.has(r.statementId) && !isCounted(r, "labor"))
+      .reduce((s, r) => s + Math.abs(r.labor), 0);
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif" }} className="daily-print-area">
@@ -3927,6 +3951,9 @@ function DailyStatementsScreen() {
                   const showOverrideValue = laborOverridden && !shownOverrideStatements.has(row.statementId);
                   if (laborOverridden) shownOverrideStatements.add(row.statementId);
                   const displayedLabor = laborOverridden ? laborOverrides[row.statementId] : row.labor;
+                  const overrideCounted = laborOverridden && isStatementOverrideCounted(row.statementId);
+                  const overrideChoiceKey = "override:" + row.statementId;
+                  const overrideChoiceOpen = activeChoice && activeChoice.key === overrideChoiceKey && activeChoice.field === "labor";
                   return (
                     <div
                       key={row.key}
@@ -3945,9 +3972,22 @@ function DailyStatementsScreen() {
                         <span style={{ color: "#8B7355" }}>{methodLabel(row.method, t)}</span>
                         {laborOverridden ? (
                           showOverrideValue ? (
-                            <span style={{ padding: "2px 4px", fontSize: 13, fontWeight: 600, color: "#C9A227" }}>
+                            <button
+                              type="button"
+                              onClick={() => setActiveChoice(overrideChoiceOpen ? null : { key: overrideChoiceKey, field: "labor" })}
+                              className={overrideCounted ? "num-included" : "num-excluded"}
+                              style={{
+                                background: "transparent",
+                                border: "none",
+                                padding: "2px 4px",
+                                cursor: "pointer",
+                                fontSize: 13,
+                                fontWeight: 600,
+                                color: overrideCounted ? "#C9A227" : "#D4756B",
+                              }}
+                            >
                               {money(displayedLabor)}
-                            </span>
+                            </button>
                           ) : (
                             <span style={{ padding: "2px 4px", fontSize: 13, color: "#8B7355" }}>—</span>
                           )
@@ -3999,6 +4039,24 @@ function DailyStatementsScreen() {
                             type="button"
                             onClick={() => chooseCounted(row, "labor", false)}
                             style={{ ...choiceBtnStyle, ...(!laborCounted ? choiceBtnActiveStyle : null) }}
+                          >
+                            {t("dont_count_option")}
+                          </button>
+                        </div>
+                      )}
+                      {overrideChoiceOpen && (
+                        <div className="print-hide" style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 6 }}>
+                          <button
+                            type="button"
+                            onClick={() => chooseStatementOverrideCounted(row.statementId, true)}
+                            style={{ ...choiceBtnStyle, ...(overrideCounted ? choiceBtnActiveStyle : null) }}
+                          >
+                            {t("count_option")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => chooseStatementOverrideCounted(row.statementId, false)}
+                            style={{ ...choiceBtnStyle, ...(!overrideCounted ? choiceBtnActiveStyle : null) }}
                           >
                             {t("dont_count_option")}
                           </button>
