@@ -3525,7 +3525,6 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                       <option value="">{t("select_method_ph")}</option>
                       <option value="Bars">{t("method_bars")}</option>
                       <option value="Scrap">{t("method_scrap")}</option>
-                      <option value="Money">{t("method_money")}</option>
                       <option value="Transfer">{t("method_transfer")}</option>
                       <option value="Labor">{t("method_labor")}</option>
                       <option value="CashToGrams">{t("method_cash_to_grams")}</option>
@@ -3890,7 +3889,13 @@ function DailyStatementsScreen() {
 
   function isCounted(row, field) {
     const key = row.key + ":" + field;
-    return Object.prototype.hasOwnProperty.call(overrides, key) ? overrides[key] : row[field] > 0;
+    if (Object.prototype.hasOwnProperty.call(overrides, key)) return overrides[key];
+    // Cash to Grams is cash arriving (converted to a gold-equivalent figure
+    // for the books) — only the money side is real money in. Grams to Cash
+    // is the mirror: only the gold side is real gold in.
+    if (row.method === "CashToGrams") return field === "labor";
+    if (row.method === "GramsToCash") return field === "gold21k";
+    return row[field] > 0;
   }
   function chooseCounted(row, field, counted) {
     const key = row.key + ":" + field;
