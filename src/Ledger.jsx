@@ -336,6 +336,21 @@ function grams(n) {
   return `${v.toLocaleString(undefined, { maximumFractionDigits: 2 })} g`;
 }
 
+// Payment rows store the method as a fixed English code ("Bars", "Scrap",
+// "Money", "Transfer", "Labor") so saved data stays stable even as labels
+// change — this maps that code to whatever the current language calls it,
+// for anywhere a method is displayed outside the dropdown itself.
+function methodLabel(method, t) {
+  switch (method) {
+    case "Bars": return t("method_bars");
+    case "Scrap": return t("method_scrap");
+    case "Money": return t("method_money");
+    case "Transfer": return t("method_transfer");
+    case "Labor": return t("method_labor");
+    default: return method;
+  }
+}
+
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -3927,7 +3942,7 @@ function DailyStatementsScreen() {
                         </div>
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
-                        <span style={{ color: "#8B7355" }}>{row.method}</span>
+                        <span style={{ color: "#8B7355" }}>{methodLabel(row.method, t)}</span>
                         {laborOverridden ? (
                           showOverrideValue ? (
                             <span style={{ padding: "2px 4px", fontSize: 13, fontWeight: 600, color: "#C9A227" }}>
