@@ -78,6 +78,7 @@ const translations = {
     add_row: "+ Add row", clear: "Clear", payments_section: "Payments",
     method_col: "Method", gold21k_col: "21k Gold", notes_col: "Notes",
     select_method_ph: "Select method…", method_bars: "Bars", method_scrap: "Scrap", method_money: "Money", method_transfer: "Transfer",
+    method_labor: "Labor",
     wt_g_ph: "Wt (g)", karat_ph: "Karat", money_ph: "Money", gold_price_ph: "Gold price",
     total_paid: "Total Paid", saving: "Saving…", deleting: "Deleting…", print: "Print",
     foot_note: "Prices subject to the daily gold rate",
@@ -175,7 +176,8 @@ const translations = {
     select_category_ph: "اختر الفئة…", total_label: "الإجمالي", discount_label: "الخصم",
     add_row: "+ إضافة صف", clear: "مسح", payments_section: "المدفوعات",
     method_col: "الطريقة", gold21k_col: "ذهب عيار 21", notes_col: "ملاحظات",
-    select_method_ph: "اختر الطريقة…", method_bars: "سبائك", method_scrap: "خردة", method_money: "نقدًا", method_transfer: "تحويل",
+    select_method_ph: "اختر الطريقة…", method_bars: "سبائك", method_scrap: "كسر", method_money: "نقدًا", method_transfer: "تحويل",
+    method_labor: "أجرة",
     wt_g_ph: "الوزن (غ)", karat_ph: "العيار", money_ph: "المبلغ", gold_price_ph: "سعر الذهب",
     total_paid: "إجمالي المدفوع", saving: "جارٍ الحفظ…", deleting: "جارٍ الحذف…", print: "طباعة",
     foot_note: "الأسعار قابلة للتغيير حسب سعر الذهب اليومي",
@@ -3465,6 +3467,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                       <option value="Scrap">{t("method_scrap")}</option>
                       <option value="Money">{t("method_money")}</option>
                       <option value="Transfer">{t("method_transfer")}</option>
+                      <option value="Labor">{t("method_labor")}</option>
                     </select>
                   </td>
                   <td>
