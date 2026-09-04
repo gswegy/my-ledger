@@ -3898,12 +3898,17 @@ function DailyStatementsScreen() {
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {rows.map((row) => {
+                {(() => {
+                  const shownOverrideStatements = new Set();
+                  return rows.map((row) => {
                   const laborCounted = isCounted(row, "labor");
                   const goldCounted = isCounted(row, "gold21k");
                   const laborChoiceOpen = activeChoice && activeChoice.key === row.key && activeChoice.field === "labor";
                   const goldChoiceOpen = activeChoice && activeChoice.key === row.key && activeChoice.field === "gold21k";
                   const laborOverridden = Object.prototype.hasOwnProperty.call(laborOverrides, row.statementId);
+                  const showOverrideValue = laborOverridden && !shownOverrideStatements.has(row.statementId);
+                  if (laborOverridden) shownOverrideStatements.add(row.statementId);
+                  const displayedLabor = laborOverridden ? laborOverrides[row.statementId] : row.labor;
                   return (
                     <div
                       key={row.key}
@@ -3920,23 +3925,32 @@ function DailyStatementsScreen() {
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
                         <span style={{ color: "#8B7355" }}>{row.method}</span>
-                        <button
-                          type="button"
-                          disabled={laborOverridden}
-                          onClick={() => setActiveChoice(laborChoiceOpen ? null : { key: row.key, field: "labor" })}
-                          className={laborCounted ? "num-included" : "num-excluded"}
-                          style={{
-                            background: "transparent",
-                            border: "none",
-                            padding: "2px 4px",
-                            cursor: laborOverridden ? "default" : "pointer",
-                            fontSize: 13,
-                            fontWeight: 600,
-                            color: laborOverridden ? "#8B7355" : laborCounted ? "#C9A227" : "#D4756B",
-                          }}
-                        >
-                          {money(row.labor)}
-                        </button>
+                        {laborOverridden ? (
+                          showOverrideValue ? (
+                            <span style={{ padding: "2px 4px", fontSize: 13, fontWeight: 600, color: "#C9A227" }}>
+                              {money(displayedLabor)}
+                            </span>
+                          ) : (
+                            <span style={{ padding: "2px 4px", fontSize: 13, color: "#8B7355" }}>—</span>
+                          )
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setActiveChoice(laborChoiceOpen ? null : { key: row.key, field: "labor" })}
+                            className={laborCounted ? "num-included" : "num-excluded"}
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              padding: "2px 4px",
+                              cursor: "pointer",
+                              fontSize: 13,
+                              fontWeight: 600,
+                              color: laborCounted ? "#C9A227" : "#D4756B",
+                            }}
+                          >
+                            {money(row.labor)}
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => setActiveChoice(goldChoiceOpen ? null : { key: row.key, field: "gold21k" })}
@@ -3990,15 +4004,11 @@ function DailyStatementsScreen() {
                           </button>
                         </div>
                       )}
-                      {laborOverridden && (
-                        <div style={{ fontSize: 11, color: "#8B7355", marginTop: 3 }}>
-                          {t("using_total_paid", { v: money(laborOverrides[row.statementId]) })}
-                        </div>
-                      )}
                       {row.note ? <div style={{ fontSize: 11.5, color: "#8B7355", marginTop: 3 }}>{row.note}</div> : null}
                     </div>
                   );
-                })}
+                  });
+                })()}
               </div>
             )}
           </div>
