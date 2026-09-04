@@ -79,7 +79,7 @@ const translations = {
     method_col: "Method", gold21k_col: "21k Gold", notes_col: "Notes",
     select_method_ph: "Select method…", method_bars: "Bars", method_scrap: "Scrap", method_money: "Cash Transfer", method_transfer: "Transfer",
     method_labor: "Labor",
-    wt_g_ph: "Wt (g)", karat_ph: "Karat", money_ph: "Money", gold_price_ph: "Gold price",
+    wt_g_ph: "Wt (g)", karat_ph: "Karat", money_ph: "Money", gold_price_ph: "Gold price", gold_g_ph: "Gold (g)",
     total_paid: "Total Paid", saving: "Saving…", deleting: "Deleting…", print: "Print",
     foot_note: "Prices subject to the daily gold rate",
     delete_row_title: "Delete row",
@@ -178,7 +178,7 @@ const translations = {
     method_col: "الطريقة", gold21k_col: "ذهب عيار 21", notes_col: "ملاحظات",
     select_method_ph: "اختر الطريقة…", method_bars: "سبائك", method_scrap: "كسر", method_money: "تحويل نقدي", method_transfer: "تحويل",
     method_labor: "أجرة",
-    wt_g_ph: "الوزن (غ)", karat_ph: "العيار", money_ph: "المبلغ", gold_price_ph: "سعر الذهب",
+    wt_g_ph: "الوزن (غ)", karat_ph: "العيار", money_ph: "المبلغ", gold_price_ph: "سعر الذهب", gold_g_ph: "الذهب (غ)",
     total_paid: "إجمالي المدفوع", saving: "جارٍ الحفظ…", deleting: "جارٍ الحذف…", print: "طباعة",
     foot_note: "الأسعار قابلة للتغيير حسب سعر الذهب اليومي",
     delete_row_title: "حذف الصف",
@@ -328,7 +328,7 @@ function toEnglishDigits(str) {
 
 function money(n) {
   const v = Number(n) || 0;
-  return v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return v.toLocaleString(undefined, { maximumFractionDigits: 0 });
 }
 
 function grams(n) {
@@ -2841,20 +2841,41 @@ const emptyPaymentRow = () => ({
 // purity into its 21k-equivalent weight: equivalent = weight * karat / 875.
 // e.g. 100g at 854 karat -> 100 * 854 / 875 = 97.6g of 21k gold.
 const KARAT_21K = 875;
+
+// Cuts a number to 2 decimal places without rounding up — a gram figure
+// that works out to 100.006 should read 100.00, not 100.01, since rounding
+// up would credit the client for gold they didn't actually bring in.
+function truncate2(n) {
+  return Math.floor(n * 100) / 100;
+}
+
 function computeBarGold21k(weight, karat) {
   const w = parseFloat(toEnglishDigits(weight)) || 0;
   const k = parseFloat(toEnglishDigits(karat)) || 0;
   if (!w || !k) return "";
-  return String(Math.round((w * k / KARAT_21K) * 100) / 100);
+  return String(truncate2((w * k) / KARAT_21K));
 }
 
-// Converts a cash amount into its 21k-gold equivalent at a given gold price
-// (price = money per gram of 21k gold). e.g. 120000 / 6340 = 18.93g.
+// The "Cash Transfer" method links three numbers — money, gold price (per
+// gram of 21k), and the 21k-gold equivalent — such that money = gold price
+// × gold. Any one of these three fields can be computed from the other two.
+function moneyFromGoldPrice(gold21k, goldPrice) {
+  const g = parseFloat(toEnglishDigits(gold21k)) || 0;
+  const p = parseFloat(toEnglishDigits(goldPrice)) || 0;
+  if (!g || !p) return "";
+  return String(truncate2(g * p));
+}
 function computeMoneyGold21k(moneyAmount, goldPrice) {
   const m = parseFloat(toEnglishDigits(moneyAmount)) || 0;
   const p = parseFloat(toEnglishDigits(goldPrice)) || 0;
   if (!m || !p) return "";
-  return String(Math.round((m / p) * 100) / 100);
+  return String(truncate2(m / p));
+}
+function goldPriceFromMoneyGold(moneyAmount, gold21k) {
+  const m = parseFloat(toEnglishDigits(moneyAmount)) || 0;
+  const g = parseFloat(toEnglishDigits(gold21k)) || 0;
+  if (!m || !g) return "";
+  return String(truncate2(m / g));
 }
 
 function CreateReceiptScreen({ receiptId, onDeleted }) {
@@ -2983,8 +3004,20 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
         if (field === "barWeight" || field === "barKarat") {
           next.gold21k = computeBarGold21k(next.barWeight, next.barKarat);
         }
-        if (field === "moneyAmount" || field === "goldPrice") {
-          next.gold21k = computeMoneyGold21k(next.moneyAmount, next.goldPrice);
+        // Cash Transfer links money, gold price, and 21k gold — editing any
+        // one of the three fills in the third from whichever of the other
+        // two already has a value.
+        if (r.method === "Money" && (field === "moneyAmount" || field === "goldPrice" || field === "gold21k")) {
+          if (field === "gold21k") {
+            if (next.goldPrice) next.moneyAmount = moneyFromGoldPrice(next.gold21k, next.goldPrice);
+            else if (next.moneyAmount) next.goldPrice = goldPriceFromMoneyGold(next.moneyAmount, next.gold21k);
+          } else if (field === "moneyAmount") {
+            if (next.goldPrice) next.gold21k = computeMoneyGold21k(next.moneyAmount, next.goldPrice);
+            else if (next.gold21k) next.goldPrice = goldPriceFromMoneyGold(next.moneyAmount, next.gold21k);
+          } else if (field === "goldPrice") {
+            if (next.moneyAmount) next.gold21k = computeMoneyGold21k(next.moneyAmount, next.goldPrice);
+            else if (next.gold21k) next.moneyAmount = moneyFromGoldPrice(next.gold21k, next.goldPrice);
+          }
         }
         return next;
       })
@@ -3425,7 +3458,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
             <tfoot>
               <tr>
                 <td colSpan={2} className="total-label">{t("total_label")}</td>
-                <td><input value={totalLabor.toFixed(2)} readOnly /></td>
+                <td><input value={totalLabor.toFixed(0)} readOnly /></td>
                 <td><input value={totalGold.toFixed(2)} readOnly /></td>
                 <td></td>
               </tr>
@@ -3444,7 +3477,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
               </tr>
               <tr className="final-total-row">
                 <td colSpan={2} className="total-label">{t("total_label")}</td>
-                <td><input value={netLabor.toFixed(2)} readOnly /></td>
+                <td><input value={netLabor.toFixed(0)} readOnly /></td>
                 <td></td>
                 <td></td>
               </tr>
@@ -3467,8 +3500,8 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
               <tr>
                 <th className="col-item" style={{ width: "20%" }}>{t("method_col")}</th>
                 <th style={{ width: "17%" }}>{t("labor_col")}</th>
-                <th style={{ width: "26%" }}>{t("gold21k_col")}</th>
-                <th style={{ width: "27%" }}>{t("notes_col")}</th>
+                <th style={{ width: "31%" }}>{t("gold21k_col")}</th>
+                <th style={{ width: "22%" }}>{t("notes_col")}</th>
                 <th style={{ width: "10%" }}></th>
               </tr>
             </thead>
@@ -3529,9 +3562,13 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                             style={{ fontSize: 11, textAlign: "center" }}
                           />
                         </div>
-                        <div style={{ textAlign: "center", fontSize: 12, fontWeight: 700, color: "var(--gold-deep)" }}>
-                          {row.gold21k ? `${row.gold21k} g` : "—"}
-                        </div>
+                        <input
+                          type="text"
+                          placeholder={t("gold_g_ph")}
+                          value={row.gold21k}
+                          onChange={(e) => updatePayment(row.id, "gold21k", e.target.value)}
+                          style={{ fontSize: 12, fontWeight: 700, color: "var(--gold-deep)", textAlign: "center" }}
+                        />
                       </div>
                     ) : (
                       <input type="text" value={row.gold21k} onChange={(e) => updatePayment(row.id, "gold21k", e.target.value)} />
@@ -3556,7 +3593,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
             <tfoot>
               <tr>
                 <td className="total-label">{t("total_label")}</td>
-                <td><input value={totalPaymentLabor.toFixed(2)} readOnly /></td>
+                <td><input value={totalPaymentLabor.toFixed(0)} readOnly /></td>
                 <td><input value={totalPaymentGold21k.toFixed(2)} readOnly /></td>
                 <td></td>
                 <td></td>
