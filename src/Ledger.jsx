@@ -465,6 +465,16 @@ function paymentMoneyValue(row) {
   return parseFloat(toEnglishDigits(usesMoneyAmount ? row.moneyAmount : row.labor)) || 0;
 }
 
+// Methods that already compute their own correct money/gold split (Cash
+// to Grams, Grams to Cash, Buy Gold for Labor Credit, and the legacy Money)
+// vs. plain rows (Scrap, Transfer, Labor, Bars) whose Labor value is just
+// whatever was typed in. A statement's "Total Paid" override is meant to
+// replace the plain rows' contribution only — the self-computing methods
+// already know whether their own number is real cash or not.
+function isSpecialMoneyMethod(method) {
+  return method === "CashToGrams" || method === "GramsToCash" || method === "GoldCredit" || method === "Money";
+}
+
 function receiptTotals(data) {
   const items = data.items || [];
   const payments = data.payments || [];
@@ -4015,12 +4025,11 @@ function DailyStatementsScreen() {
   const goldEntered = rows.filter((r) => isCounted(r, "gold21k")).reduce((s, r) => s + r.gold21k, 0);
   const goldExcluded = rows.filter((r) => !isCounted(r, "gold21k")).reduce((s, r) => s + Math.abs(r.gold21k), 0);
 
-  // Money entered: a statement whose "Total Paid" box has a number uses
-  // that figure once for its whole contribution, instead of summing its
-  // individual payment rows — those rows still display below for
-  // reference, but don't separately feed the total in that case. Each
-  // override value gets its own count/don't-count toggle, same as a
-  // normal row.
+  // Money entered: a statement whose "Total Paid" box has a number
+  // replaces its plain rows' contribution with that figure — but rows
+  // using a self-computing method (Cash to Grams, etc.) keep counting on
+  // their own terms regardless, since those already know what's real cash
+  // and what isn't.
   const overriddenStatementIds = new Set(Object.keys(laborOverrides));
   const laborFromOverrides = Object.entries(laborOverrides)
     .filter(([id]) => isStatementOverrideCounted(id))
@@ -4028,15 +4037,20 @@ function DailyStatementsScreen() {
   const laborOverridesExcluded = Object.entries(laborOverrides)
     .filter(([id]) => !isStatementOverrideCounted(id))
     .reduce((s, [, v]) => s + Math.abs(v), 0);
-  const laborFromRows = rows
-    .filter((r) => !overriddenStatementIds.has(r.statementId) && isCounted(r, "labor"))
+  const laborFromSpecialRows = rows
+    .filter((r) => isSpecialMoneyMethod(r.method) && isCounted(r, "labor"))
     .reduce((s, r) => s + r.labor, 0);
-  const laborEntered = laborFromOverrides + laborFromRows;
-  const laborExcluded =
-    laborOverridesExcluded +
-    rows
-      .filter((r) => !overriddenStatementIds.has(r.statementId) && !isCounted(r, "labor"))
-      .reduce((s, r) => s + Math.abs(r.labor), 0);
+  const laborFromSpecialExcluded = rows
+    .filter((r) => isSpecialMoneyMethod(r.method) && !isCounted(r, "labor"))
+    .reduce((s, r) => s + Math.abs(r.labor), 0);
+  const laborFromDefaultRows = rows
+    .filter((r) => !isSpecialMoneyMethod(r.method) && !overriddenStatementIds.has(r.statementId) && isCounted(r, "labor"))
+    .reduce((s, r) => s + r.labor, 0);
+  const laborFromDefaultExcluded = rows
+    .filter((r) => !isSpecialMoneyMethod(r.method) && !overriddenStatementIds.has(r.statementId) && !isCounted(r, "labor"))
+    .reduce((s, r) => s + Math.abs(r.labor), 0);
+  const laborEntered = laborFromOverrides + laborFromSpecialRows + laborFromDefaultRows;
+  const laborExcluded = laborOverridesExcluded + laborFromSpecialExcluded + laborFromDefaultExcluded;
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif" }} className="daily-print-area">
@@ -4127,7 +4141,8 @@ function DailyStatementsScreen() {
                   const goldCounted = isCounted(row, "gold21k");
                   const laborChoiceOpen = activeChoice && activeChoice.key === row.key && activeChoice.field === "labor";
                   const goldChoiceOpen = activeChoice && activeChoice.key === row.key && activeChoice.field === "gold21k";
-                  const laborOverridden = Object.prototype.hasOwnProperty.call(laborOverrides, row.statementId);
+                  const laborOverridden =
+                    !isSpecialMoneyMethod(row.method) && Object.prototype.hasOwnProperty.call(laborOverrides, row.statementId);
                   const showOverrideValue = laborOverridden && !shownOverrideStatements.has(row.statementId);
                   if (laborOverridden) shownOverrideStatements.add(row.statementId);
                   const displayedLabor = laborOverridden ? laborOverrides[row.statementId] : row.labor;
