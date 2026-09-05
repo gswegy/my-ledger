@@ -3039,6 +3039,13 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
       prev.map((r) => {
         if (r.id !== id) return r;
         const next = { ...r, [field]: v };
+        // Scrap never uses Labor, and Labor never uses 21k Gold — switching
+        // to either clears the field that method doesn't use, so it stays
+        // genuinely empty rather than showing a stale value.
+        if (field === "method") {
+          if (v === "Scrap") next.labor = "";
+          if (v === "Labor") next.gold21k = "";
+        }
         if (field === "barWeight" || field === "barKarat") {
           next.gold21k = computeBarGold21k(next.barWeight, next.barKarat);
         }
@@ -3584,7 +3591,10 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                     </select>
                   </td>
                   <td>
-                    {row.method === "GramsToCash" || row.method === "GoldCredit" || row.method === "CashToGrams" ? (
+                    {row.method === "GramsToCash" ||
+                    row.method === "GoldCredit" ||
+                    row.method === "CashToGrams" ||
+                    row.method === "Scrap" ? (
                       <input type="text" value={row.labor} readOnly style={{ color: "var(--gold-deep)", fontWeight: 700 }} />
                     ) : (
                       <input type="text" value={row.labor} onChange={(e) => updatePayment(row.id, "labor", e.target.value)} />
@@ -3722,6 +3732,8 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                           {row.gold21k ? `${row.gold21k} g` : "—"}
                         </div>
                       </div>
+                    ) : row.method === "Labor" ? (
+                      <input type="text" value={row.gold21k} readOnly />
                     ) : (
                       <input type="text" value={row.gold21k} onChange={(e) => updatePayment(row.id, "gold21k", e.target.value)} />
                     )}
@@ -3992,6 +4004,9 @@ function DailyStatementsScreen() {
     // negative gold cancels an earlier overage and the positive labor is
     // a credit, neither of which is new gold or cash actually arriving.
     if (row.method === "GoldCredit") return false;
+    // A Bars payment's Labor value (if anyone types one in) isn't part of
+    // the gold-bar transaction itself, so it doesn't count as cash in.
+    if (row.method === "Bars" && field === "labor") return false;
     return row[field] > 0;
   }
   function chooseCounted(row, field, counted) {
