@@ -451,6 +451,16 @@ function entriesForBook(entries, book) {
 // Recomputes a saved receipt's sale/payment totals from its raw items and
 // payments — used by the Transactions report for statements that aren't
 // linked to a client (so there's no posted ledger entry to read instead).
+// Some payment methods keep their real cash figure in moneyAmount rather
+// than Labor — Cash to Grams (and the legacy Cash Transfer/Money method)
+// leave Labor blank and compute the gold from Money + Gold price instead.
+// This returns "the actual money value for this row" regardless of which
+// field it's physically stored in, so totals/posting/reports agree.
+function paymentMoneyValue(row) {
+  const usesMoneyAmount = row.method === "CashToGrams" || row.method === "Money";
+  return parseFloat(toEnglishDigits(usesMoneyAmount ? row.moneyAmount : row.labor)) || 0;
+}
+
 function receiptTotals(data) {
   const items = data.items || [];
   const payments = data.payments || [];
@@ -458,7 +468,7 @@ function receiptTotals(data) {
   const totalLabor = items.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.labor)) || 0), 0);
   const discountAmount = parseFloat(toEnglishDigits(data.discount)) || 0;
   const netLabor = totalLabor - discountAmount;
-  const totalPaymentLabor = payments.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.labor)) || 0), 0);
+  const totalPaymentLabor = payments.reduce((s, r) => s + paymentMoneyValue(r), 0);
   const totalPaymentGold21k = payments.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.gold21k)) || 0), 0);
   return { totalGold, netLabor, totalPaymentGold21k, totalPaymentLabor };
 }
@@ -2983,7 +2993,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
   const totalLabor = items.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.labor)) || 0), 0);
   const discountAmount = parseFloat(toEnglishDigits(discount)) || 0;
   const netLabor = totalLabor - discountAmount;
-  const totalPaymentLabor = payments.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.labor)) || 0), 0);
+  const totalPaymentLabor = payments.reduce((s, r) => s + paymentMoneyValue(r), 0);
   const totalPaymentGold21k = payments.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.gold21k)) || 0), 0);
 
   function updateItem(id, field, value) {
@@ -3892,7 +3902,7 @@ function DailyStatementsScreen() {
             if (!isNaN(num)) laborOverridesByStatement[data.id] = num;
           }
           (data.payments || []).forEach((row) => {
-            const labor = parseFloat(toEnglishDigits(row.labor)) || 0;
+            const labor = paymentMoneyValue(row);
             const gold21k = parseFloat(toEnglishDigits(row.gold21k)) || 0;
             if (!row.method && !labor && !gold21k) return;
             detailRows.push({
@@ -4754,4 +4764,3 @@ function LedgerHome() {
     </div>
   );
 }
-
