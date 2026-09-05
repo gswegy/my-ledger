@@ -3042,10 +3042,13 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
         if (field === "barWeight" || field === "barKarat") {
           next.gold21k = computeBarGold21k(next.barWeight, next.barKarat);
         }
-        // Cash Transfer links money, gold price, and 21k gold — editing any
-        // one of the three fills in the third from whichever of the other
-        // two already has a value.
-        if (r.method === "Money" && (field === "moneyAmount" || field === "goldPrice" || field === "gold21k")) {
+        // Cash to Grams (and the legacy Cash Transfer/Money) links money,
+        // gold price, and 21k gold — editing any one of the three fills in
+        // the third from whichever of the other two already has a value.
+        if (
+          (r.method === "Money" || r.method === "CashToGrams") &&
+          (field === "moneyAmount" || field === "goldPrice" || field === "gold21k")
+        ) {
           if (field === "gold21k") {
             if (next.goldPrice) next.moneyAmount = moneyFromGoldPrice(next.gold21k, next.goldPrice);
             else if (next.moneyAmount) next.goldPrice = goldPriceFromMoneyGold(next.moneyAmount, next.gold21k);
@@ -3056,11 +3059,6 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
             if (next.moneyAmount) next.gold21k = computeMoneyGold21k(next.moneyAmount, next.goldPrice);
             else if (next.gold21k) next.moneyAmount = moneyFromGoldPrice(next.gold21k, next.goldPrice);
           }
-        }
-        // Cash to Grams: one direction only — money + price always fill
-        // in the grams, never the other way around.
-        if (r.method === "CashToGrams" && (field === "moneyAmount" || field === "goldPrice")) {
-          next.gold21k = computeMoneyGold21k(next.moneyAmount, next.goldPrice);
         }
         // Grams to Cash: one direction only — grams + price always fill
         // in the money (stored in Labor), never the other way around.
@@ -3559,8 +3557,8 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
               <tr>
                 <th className="col-item" style={{ width: "20%" }}>{t("method_col")}</th>
                 <th style={{ width: "17%" }}>{t("labor_col")}</th>
-                <th style={{ width: "31%" }}>{t("gold21k_col")}</th>
-                <th style={{ width: "22%" }}>{t("notes_col")}</th>
+                <th style={{ width: "36%" }}>{t("gold21k_col")}</th>
+                <th style={{ width: "17%" }}>{t("notes_col")}</th>
                 <th style={{ width: "10%" }}></th>
               </tr>
             </thead>
@@ -3580,7 +3578,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                     </select>
                   </td>
                   <td>
-                    {row.method === "GramsToCash" || row.method === "GoldCredit" ? (
+                    {row.method === "GramsToCash" || row.method === "GoldCredit" || row.method === "CashToGrams" ? (
                       <input type="text" value={row.labor} readOnly style={{ color: "var(--gold-deep)", fontWeight: 700 }} />
                     ) : (
                       <input type="text" value={row.labor} onChange={(e) => updatePayment(row.id, "labor", e.target.value)} />
@@ -3663,9 +3661,13 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                             style={{ fontSize: 11, textAlign: "center" }}
                           />
                         </div>
-                        <div style={{ textAlign: "center", fontSize: 12, fontWeight: 700, color: "var(--gold-deep)" }}>
-                          {row.gold21k ? `${row.gold21k} g` : "—"}
-                        </div>
+                        <input
+                          type="text"
+                          placeholder={t("gold_g_ph")}
+                          value={row.gold21k}
+                          onChange={(e) => updatePayment(row.id, "gold21k", e.target.value)}
+                          style={{ fontSize: 12, fontWeight: 700, color: "var(--gold-deep)", textAlign: "center" }}
+                        />
                       </div>
                     ) : row.method === "GramsToCash" ? (
                       <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
