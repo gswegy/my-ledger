@@ -82,6 +82,7 @@ const translations = {
     method_cash_to_grams: "Cash to Grams", method_grams_to_cash: "Grams to Cash",
     method_gold_credit: "Buy Gold for Labor Credit",
     buyback_grams_ph: "Gold (g)",
+    cash_received_note: "Total cash received in this transaction: {v}",
     wt_g_ph: "Wt (g)", karat_ph: "Karat", money_ph: "Money", gold_price_ph: "Gold price", gold_g_ph: "Gold (g)",
     total_paid: "Total Paid", saving: "Saving…", deleting: "Deleting…", print: "Print",
     foot_note: "Prices subject to the daily gold rate",
@@ -184,6 +185,7 @@ const translations = {
     method_cash_to_grams: "نقد إلى غرامات", method_grams_to_cash: "غرامات إلى نقد",
     method_gold_credit: "شراء ذهب مقابل رصيد أجرة",
     buyback_grams_ph: "الذهب (غ)",
+    cash_received_note: "إجمالي النقد المستلم في هذه العملية: {v}",
     wt_g_ph: "الوزن (غ)", karat_ph: "العيار", money_ph: "المبلغ", gold_price_ph: "سعر الذهب", gold_g_ph: "الذهب (غ)",
     total_paid: "إجمالي المدفوع", saving: "جارٍ الحفظ…", deleting: "جارٍ الحذف…", print: "طباعة",
     foot_note: "الأسعار قابلة للتغيير حسب سعر الذهب اليومي",
@@ -454,8 +456,10 @@ function entriesForBook(entries, book) {
 // Some payment methods keep their real cash figure in moneyAmount rather
 // than Labor — Cash to Grams (and the legacy Cash Transfer/Money method)
 // leave Labor blank and compute the gold from Money + Gold price instead.
-// This returns "the actual money value for this row" regardless of which
-// field it's physically stored in, so totals/posting/reports agree.
+// This is "how much actual cash this row represents," used only for
+// reporting what physically came into the shop — it's separate from
+// Labor, which is what actually reduces a client's wage debt (money that
+// gets converted straight into a gold credit was never a wage payment).
 function paymentMoneyValue(row) {
   const usesMoneyAmount = row.method === "CashToGrams" || row.method === "Money";
   return parseFloat(toEnglishDigits(usesMoneyAmount ? row.moneyAmount : row.labor)) || 0;
@@ -468,7 +472,7 @@ function receiptTotals(data) {
   const totalLabor = items.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.labor)) || 0), 0);
   const discountAmount = parseFloat(toEnglishDigits(data.discount)) || 0;
   const netLabor = totalLabor - discountAmount;
-  const totalPaymentLabor = payments.reduce((s, r) => s + paymentMoneyValue(r), 0);
+  const totalPaymentLabor = payments.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.labor)) || 0), 0);
   const totalPaymentGold21k = payments.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.gold21k)) || 0), 0);
   return { totalGold, netLabor, totalPaymentGold21k, totalPaymentLabor };
 }
@@ -2993,8 +2997,12 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
   const totalLabor = items.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.labor)) || 0), 0);
   const discountAmount = parseFloat(toEnglishDigits(discount)) || 0;
   const netLabor = totalLabor - discountAmount;
-  const totalPaymentLabor = payments.reduce((s, r) => s + paymentMoneyValue(r), 0);
+  const totalPaymentLabor = payments.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.labor)) || 0), 0);
   const totalPaymentGold21k = payments.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.gold21k)) || 0), 0);
+  // Informational only — the actual cash that came in this transaction,
+  // including money that got converted straight into a gold credit. This
+  // never affects the client's wage debt, only Labor above does that.
+  const totalCashReceived = payments.reduce((s, r) => s + paymentMoneyValue(r), 0);
 
   function updateItem(id, field, value) {
     const v = field === "price" || field === "labor" || field === "gram" ? toEnglishDigits(value) : value;
@@ -3739,6 +3747,11 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
               </tr>
             </tfoot>
           </table>
+          {totalCashReceived !== totalPaymentLabor && (
+            <div style={{ fontSize: 11.5, color: "#8B7355", marginTop: 6 }}>
+              {t("cash_received_note", { v: money(totalCashReceived) })}
+            </div>
+          )}
 
           <div className="controls">
             <div>
