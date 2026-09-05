@@ -111,8 +111,9 @@ const translations = {
     saved: "Saved", count_option: "Count", dont_count_option: "Don't count",
     save_choices: "Save",
     using_total_paid: "Money entered uses this statement's Total Paid box instead: {v}",
-    confirm_edit_row: "Save changes to this payment row?", confirm_delete_row: "Delete this payment row? This can't be undone.",
     save: "Save",
+    manual_entries: "Manual entries",
+    manual_entries_desc: "Rows added here only affect this date's totals below — they're never saved to any statement and never touch a client's book.",
   },
   ar: {
     home: "الرئيسية", app_title: "الذهب الحديث", nav_clients: "العملاء", nav_receipts: "الإيصالات", nav_reviews: "المراجعات",
@@ -216,8 +217,9 @@ const translations = {
     saved: "تم الحفظ", count_option: "احسبه", dont_count_option: "لا تحسبه",
     save_choices: "حفظ",
     using_total_paid: "المال الداخل يستخدم مربع (إجمالي المدفوع) لهذا الكشف بدلاً من ذلك: {v}",
-    confirm_edit_row: "حفظ التغييرات على صف الدفع هذا؟", confirm_delete_row: "حذف صف الدفع هذا؟ لا يمكن التراجع عن هذا.",
     save: "حفظ",
+    manual_entries: "إدخالات يدوية",
+    manual_entries_desc: "الصفوف المضافة هنا تؤثر فقط على إجماليات هذا التاريخ أدناه — لا تُحفظ أبدًا ضمن أي كشف حساب ولا تؤثر على دفتر أي عميل.",
   },
 };
 
@@ -3924,172 +3926,117 @@ function DailyStatementsScreen() {
   const [rows, setRows] = useState([]);
   const [overrides, setOverrides] = useState({}); // "<rowKey>:<field>" -> boolean
   const [laborOverrides, setLaborOverrides] = useState({}); // statementId -> number (from "Total Paid" box)
+  const [manualRows, setManualRows] = useState([]); // local-only rows, never saved to any statement
   const [activeChoice, setActiveChoice] = useState(null); // { key, field } | null
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
   const [dirty, setDirty] = useState(false);
-  const [reloadTick, setReloadTick] = useState(0);
-  const [editingKey, setEditingKey] = useState(null);
-  const [editDraft, setEditDraft] = useState(null);
-  const [rowBusyKey, setRowBusyKey] = useState(null);
-
-  async function loadForDate(date) {
-    setLoading(true);
-    setActiveChoice(null);
-    let detailRows = [];
-    let laborOverridesByStatement = {};
-    try {
-      const listRes = await window.storage.get("receipts-list", false);
-      const list = listRes ? JSON.parse(listRes.value) : [];
-      const onDate = list.filter((r) => r.date === date);
-      const fullReceipts = await Promise.all(
-        onDate.map(async (r) => {
-          try {
-            const res = await window.storage.get("receipt:" + r.id, false);
-            return res ? JSON.parse(res.value) : null;
-          } catch (e) {
-            return null;
-          }
-        })
-      );
-      fullReceipts.forEach((data) => {
-        if (!data) return;
-        const totalPaidRaw = (data.totalPaidLabor || "").toString().trim();
-        if (totalPaidRaw !== "") {
-          const num = parseFloat(toEnglishDigits(totalPaidRaw));
-          if (!isNaN(num)) laborOverridesByStatement[data.id] = num;
-        }
-        (data.payments || []).forEach((row) => {
-          const labor = paymentMoneyValue(row);
-          const gold21k = parseFloat(toEnglishDigits(row.gold21k)) || 0;
-          if (!row.method && !labor && !gold21k) return;
-          detailRows.push({
-            key: data.id + ":" + row.id,
-            statementId: data.id,
-            rowId: row.id,
-            clientId: data.clientId || null,
-            statementNo: data.statementNo,
-            clientName: data.clientName || "",
-            method: row.method || "",
-            labor,
-            gold21k,
-            note: row.note || "",
-          });
-        });
-      });
-    } catch (e) {
-      detailRows = [];
-    }
-
-    let savedOverrides = {};
-    try {
-      const res = await window.storage.get("daily-statement:" + date, false);
-      const parsed = res ? JSON.parse(res.value) : null;
-      savedOverrides = (parsed && parsed.overrides) || {};
-    } catch (e) {
-      savedOverrides = {};
-    }
-
-    setRows(detailRows);
-    setOverrides(savedOverrides);
-    setLaborOverrides(laborOverridesByStatement);
-    setLoading(false);
-  }
 
   useEffect(() => {
     let cancelled = false;
-    setSaveMessage("");
-    setDirty(false);
     (async () => {
-      await loadForDate(selectedDate);
-      if (cancelled) return;
+      setLoading(true);
+      setActiveChoice(null);
+      setSaveMessage("");
+      setDirty(false);
+      let detailRows = [];
+      let laborOverridesByStatement = {};
+      try {
+        const listRes = await window.storage.get("receipts-list", false);
+        const list = listRes ? JSON.parse(listRes.value) : [];
+        const onDate = list.filter((r) => r.date === selectedDate);
+        const fullReceipts = await Promise.all(
+          onDate.map(async (r) => {
+            try {
+              const res = await window.storage.get("receipt:" + r.id, false);
+              return res ? JSON.parse(res.value) : null;
+            } catch (e) {
+              return null;
+            }
+          })
+        );
+        fullReceipts.forEach((data) => {
+          if (!data) return;
+          const totalPaidRaw = (data.totalPaidLabor || "").toString().trim();
+          if (totalPaidRaw !== "") {
+            const num = parseFloat(toEnglishDigits(totalPaidRaw));
+            if (!isNaN(num)) laborOverridesByStatement[data.id] = num;
+          }
+          (data.payments || []).forEach((row) => {
+            const labor = paymentMoneyValue(row);
+            const gold21k = parseFloat(toEnglishDigits(row.gold21k)) || 0;
+            if (!row.method && !labor && !gold21k) return;
+            detailRows.push({
+              key: data.id + ":" + row.id,
+              statementId: data.id,
+              statementNo: data.statementNo,
+              clientName: data.clientName || "",
+              method: row.method || "",
+              labor,
+              gold21k,
+              note: row.note || "",
+            });
+          });
+        });
+      } catch (e) {
+        detailRows = [];
+      }
+
+      let savedOverrides = {};
+      let savedManualRows = [];
+      try {
+        const res = await window.storage.get("daily-statement:" + selectedDate, false);
+        const parsed = res ? JSON.parse(res.value) : null;
+        savedOverrides = (parsed && parsed.overrides) || {};
+        savedManualRows = (parsed && parsed.manualRows) || [];
+      } catch (e) {
+        savedOverrides = {};
+        savedManualRows = [];
+      }
+
+      if (!cancelled) {
+        setRows(detailRows);
+        setOverrides(savedOverrides);
+        setLaborOverrides(laborOverridesByStatement);
+        setManualRows(savedManualRows);
+        setLoading(false);
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [selectedDate, reloadTick]);
+  }, [selectedDate]);
 
-  // Applies an edit to one statement's saved payments array — used for
-  // adding, editing, or deleting a row from this report — then recomputes
-  // what posts to the linked client's ledger (if any) and re-saves it.
-  async function mutateStatementPayments(statementId, mutateFn) {
-    setRowBusyKey(statementId);
-    try {
-      const res = await window.storage.get("receipt:" + statementId, false);
-      if (!res) return;
-      const data = JSON.parse(res.value);
-      data.payments = mutateFn(data.payments || []);
-
-      const items = data.items || [];
-      const totalGold = items.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.gram)) || 0), 0);
-      const totalLabor = items.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.labor)) || 0), 0);
-      const discountAmount = parseFloat(toEnglishDigits(data.discount)) || 0;
-      const netLabor = totalLabor - discountAmount;
-      const totalPaymentLabor = data.payments.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.labor)) || 0), 0);
-      const totalPaymentGold21k = data.payments.reduce((s, r) => s + (parseFloat(toEnglishDigits(r.gold21k)) || 0), 0);
-
-      if (data.posted) {
-        try {
-          await removePostedEntries(data.posted.clientId, data.posted);
-        } catch (e) {
-          // best-effort; proceed to re-post fresh entries below regardless
-        }
-        data.posted = null;
-      }
-      if (data.clientId) {
-        try {
-          data.posted = await postStatementToClient(data.clientId, data.statementNo, data.date, {
-            totalGold,
-            netLabor,
-            totalPaymentGold21k,
-            totalPaymentLabor,
-          });
-        } catch (e) {
-          data.posted = null;
-        }
-      }
-
-      await window.storage.set("receipt:" + statementId, JSON.stringify(data), false);
-    } catch (e) {
-      // best-effort; the reload below shows whatever's actually saved
-    } finally {
-      setRowBusyKey(null);
-      setEditingKey(null);
-      setEditDraft(null);
-      setReloadTick((n) => n + 1);
-    }
+  // Manual rows are purely local to this report — they never touch any
+  // saved statement or client ledger, only this date's own totals here.
+  function addManualRow() {
+    setManualRows((prev) => [...prev, { id: uid(), method: "", labor: "", gold21k: "", note: "" }]);
+    setDirty(true);
+  }
+  function updateManualRow(id, field, value) {
+    const v = field === "labor" || field === "gold21k" ? toEnglishDigits(value) : value;
+    setManualRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: v } : r)));
+    setDirty(true);
+  }
+  function removeManualRow(id) {
+    setManualRows((prev) => prev.filter((r) => r.id !== id));
+    setDirty(true);
   }
 
-  function startEdit(row) {
-    setEditingKey(row.key);
-    setEditDraft({ method: row.method, labor: String(row.labor || ""), gold21k: String(row.gold21k || ""), note: row.note || "" });
-  }
-  function cancelEdit() {
-    setEditingKey(null);
-    setEditDraft(null);
-  }
-  function saveEdit(row) {
-    if (!window.confirm(t("confirm_edit_row"))) return;
-    const draft = editDraft;
-    mutateStatementPayments(row.statementId, (payments) =>
-      payments.map((p) =>
-        p.id === row.rowId
-          ? { ...p, method: draft.method, labor: toEnglishDigits(draft.labor), gold21k: toEnglishDigits(draft.gold21k), note: draft.note }
-          : p
-      )
-    );
-  }
-  function deleteRow(row) {
-    if (!window.confirm(t("confirm_delete_row"))) return;
-    mutateStatementPayments(row.statementId, (payments) => payments.filter((p) => p.id !== row.rowId));
-  }
-  function addRowToStatement(statementId) {
-    const newId = uid();
-    mutateStatementPayments(statementId, (payments) => [
-      ...payments,
-      { id: newId, method: "", labor: "", gold21k: "", barWeight: "", barKarat: "", moneyAmount: "", goldPrice: "", buybackGrams: "", note: "" },
-    ]);
-  }
+  // Manual rows participate in the same totals/counting rules as real
+  // payment rows, just under their own keys, so they show and count the
+  // same way (including the count/don't-count tap and method defaults).
+  const manualAsRows = manualRows.map((m) => ({
+    key: "manual:" + m.id,
+    statementId: null,
+    statementNo: null,
+    clientName: "",
+    method: m.method || "",
+    labor: parseFloat(toEnglishDigits(m.labor)) || 0,
+    gold21k: parseFloat(toEnglishDigits(m.gold21k)) || 0,
+    note: m.note || "",
+  }));
+  const allRows = [...rows, ...manualAsRows];
 
   function isCounted(row, field) {
     const key = row.key + ":" + field;
@@ -4136,7 +4083,7 @@ function DailyStatementsScreen() {
     try {
       const result = await window.storage.set(
         "daily-statement:" + selectedDate,
-        JSON.stringify({ overrides }),
+        JSON.stringify({ overrides, manualRows }),
         false
       );
       if (!result) throw new Error("save failed");
@@ -4150,14 +4097,15 @@ function DailyStatementsScreen() {
     }
   }
 
-  const goldEntered = rows.filter((r) => isCounted(r, "gold21k")).reduce((s, r) => s + r.gold21k, 0);
-  const goldExcluded = rows.filter((r) => !isCounted(r, "gold21k")).reduce((s, r) => s + Math.abs(r.gold21k), 0);
+  const goldEntered = allRows.filter((r) => isCounted(r, "gold21k")).reduce((s, r) => s + r.gold21k, 0);
+  const goldExcluded = allRows.filter((r) => !isCounted(r, "gold21k")).reduce((s, r) => s + Math.abs(r.gold21k), 0);
 
   // Money entered: a statement whose "Total Paid" box has a number
   // replaces its plain rows' contribution with that figure — but rows
   // using a self-computing method (Cash to Grams, etc.) keep counting on
   // their own terms regardless, since those already know what's real cash
-  // and what isn't.
+  // and what isn't. Manual rows (statementId is null) are never touched by
+  // any statement's override — they're always plain, local-only rows.
   const overriddenStatementIds = new Set(Object.keys(laborOverrides));
   const laborFromOverrides = Object.entries(laborOverrides)
     .filter(([id]) => isStatementOverrideCounted(id))
@@ -4165,16 +4113,16 @@ function DailyStatementsScreen() {
   const laborOverridesExcluded = Object.entries(laborOverrides)
     .filter(([id]) => !isStatementOverrideCounted(id))
     .reduce((s, [, v]) => s + Math.abs(v), 0);
-  const laborFromSpecialRows = rows
+  const laborFromSpecialRows = allRows
     .filter((r) => isSpecialMoneyMethod(r.method) && isCounted(r, "labor"))
     .reduce((s, r) => s + r.labor, 0);
-  const laborFromSpecialExcluded = rows
+  const laborFromSpecialExcluded = allRows
     .filter((r) => isSpecialMoneyMethod(r.method) && !isCounted(r, "labor"))
     .reduce((s, r) => s + Math.abs(r.labor), 0);
-  const laborFromDefaultRows = rows
+  const laborFromDefaultRows = allRows
     .filter((r) => !isSpecialMoneyMethod(r.method) && !overriddenStatementIds.has(r.statementId) && isCounted(r, "labor"))
     .reduce((s, r) => s + r.labor, 0);
-  const laborFromDefaultExcluded = rows
+  const laborFromDefaultExcluded = allRows
     .filter((r) => !isSpecialMoneyMethod(r.method) && !overriddenStatementIds.has(r.statementId) && !isCounted(r, "labor"))
     .reduce((s, r) => s + Math.abs(r.labor), 0);
   const laborEntered = laborFromOverrides + laborFromSpecialRows + laborFromDefaultRows;
@@ -4264,7 +4212,7 @@ function DailyStatementsScreen() {
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {(() => {
                   const shownOverrideStatements = new Set();
-                  return rows.map((row, idx) => {
+                  return rows.map((row) => {
                   const laborCounted = isCounted(row, "labor");
                   const goldCounted = isCounted(row, "gold21k");
                   const laborChoiceOpen = activeChoice && activeChoice.key === row.key && activeChoice.field === "labor";
@@ -4277,12 +4225,9 @@ function DailyStatementsScreen() {
                   const overrideCounted = laborOverridden && isStatementOverrideCounted(row.statementId);
                   const overrideChoiceKey = "override:" + row.statementId;
                   const overrideChoiceOpen = activeChoice && activeChoice.key === overrideChoiceKey && activeChoice.field === "labor";
-                  const isEditing = editingKey === row.key;
-                  const isLastOfStatement = idx === rows.length - 1 || rows[idx + 1].statementId !== row.statementId;
-                  const rowBusy = rowBusyKey === row.statementId;
                   return (
-                    <div key={row.key}>
                     <div
+                      key={row.key}
                       className="row-card"
                       style={{ background: "#1C1913", border: "1px solid #3A3527", borderRadius: 10, padding: "0.7rem 0.9rem" }}
                     >
@@ -4294,107 +4239,14 @@ function DailyStatementsScreen() {
                           {t("stmt_col")} #{row.statementNo}
                         </div>
                       </div>
-
-                      {isEditing ? (
-                        <div className="print-hide" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                          <select
-                            value={editDraft.method}
-                            onChange={(e) => setEditDraft((d) => ({ ...d, method: e.target.value }))}
-                            style={{ fontSize: 13 }}
-                          >
-                            <option value="">{t("select_method_ph")}</option>
-                            <option value="Bars">{t("method_bars")}</option>
-                            <option value="Scrap">{t("method_scrap")}</option>
-                            <option value="Transfer">{t("method_transfer")}</option>
-                            <option value="Labor">{t("method_labor")}</option>
-                            <option value="CashToGrams">{t("method_cash_to_grams")}</option>
-                            <option value="GramsToCash">{t("method_grams_to_cash")}</option>
-                            <option value="GoldCredit">{t("method_gold_credit")}</option>
-                          </select>
-                          <div style={{ display: "flex", gap: 6 }}>
-                            <input
-                              type="text"
-                              placeholder={t("labor_col")}
-                              value={editDraft.labor}
-                              onChange={(e) => setEditDraft((d) => ({ ...d, labor: e.target.value }))}
-                              style={{ flex: 1, fontSize: 13 }}
-                            />
-                            <input
-                              type="text"
-                              placeholder={t("gold21k_col")}
-                              value={editDraft.gold21k}
-                              onChange={(e) => setEditDraft((d) => ({ ...d, gold21k: e.target.value }))}
-                              style={{ flex: 1, fontSize: 13 }}
-                            />
-                          </div>
-                          <input
-                            type="text"
-                            placeholder={t("notes_col")}
-                            value={editDraft.note}
-                            onChange={(e) => setEditDraft((d) => ({ ...d, note: e.target.value }))}
-                            style={{ fontSize: 13 }}
-                          />
-                          <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
-                            <button type="button" onClick={cancelEdit} disabled={rowBusy} style={choiceBtnStyle}>
-                              {t("cancel")}
-                            </button>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
+                        <span style={{ color: "#8B7355" }}>{methodLabel(row.method, t)}</span>
+                        {laborOverridden ? (
+                          showOverrideValue ? (
                             <button
                               type="button"
-                              onClick={() => saveEdit(row)}
-                              disabled={rowBusy}
-                              style={{ ...choiceBtnStyle, ...choiceBtnActiveStyle }}
-                            >
-                              {rowBusy ? t("saving") : t("save")}
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
-                            <span style={{ color: "#8B7355" }}>{methodLabel(row.method, t)}</span>
-                            {laborOverridden ? (
-                              showOverrideValue ? (
-                                <button
-                                  type="button"
-                                  onClick={() => setActiveChoice(overrideChoiceOpen ? null : { key: overrideChoiceKey, field: "labor" })}
-                                  className={overrideCounted ? "num-included" : "num-excluded"}
-                                  style={{
-                                    background: "transparent",
-                                    border: "none",
-                                    padding: "2px 4px",
-                                    cursor: "pointer",
-                                    fontSize: 13,
-                                    fontWeight: 600,
-                                    color: overrideCounted ? "#C9A227" : "#D4756B",
-                                  }}
-                                >
-                                  {money(displayedLabor)}
-                                </button>
-                              ) : (
-                                <span style={{ padding: "2px 4px", fontSize: 13, color: "#8B7355" }}>—</span>
-                              )
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => setActiveChoice(laborChoiceOpen ? null : { key: row.key, field: "labor" })}
-                                className={laborCounted ? "num-included" : "num-excluded"}
-                                style={{
-                                  background: "transparent",
-                                  border: "none",
-                                  padding: "2px 4px",
-                                  cursor: "pointer",
-                                  fontSize: 13,
-                                  fontWeight: 600,
-                                  color: laborCounted ? "#C9A227" : "#D4756B",
-                                }}
-                              >
-                                {money(row.labor)}
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => setActiveChoice(goldChoiceOpen ? null : { key: row.key, field: "gold21k" })}
-                              className={goldCounted ? "num-included" : "num-excluded"}
+                              onClick={() => setActiveChoice(overrideChoiceOpen ? null : { key: overrideChoiceKey, field: "labor" })}
+                              className={overrideCounted ? "num-included" : "num-excluded"}
                               style={{
                                 background: "transparent",
                                 border: "none",
@@ -4402,104 +4254,181 @@ function DailyStatementsScreen() {
                                 cursor: "pointer",
                                 fontSize: 13,
                                 fontWeight: 600,
-                                color: goldCounted ? "#C9A227" : "#D4756B",
+                                color: overrideCounted ? "#C9A227" : "#D4756B",
                               }}
                             >
-                              {grams(row.gold21k)}
+                              {money(displayedLabor)}
                             </button>
-                          </div>
-                          {laborChoiceOpen && (
-                            <div className="print-hide" style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 6 }}>
-                              <button
-                                type="button"
-                                onClick={() => chooseCounted(row, "labor", true)}
-                                style={{ ...choiceBtnStyle, ...(laborCounted ? choiceBtnActiveStyle : null) }}
-                              >
-                                {t("count_option")}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => chooseCounted(row, "labor", false)}
-                                style={{ ...choiceBtnStyle, ...(!laborCounted ? choiceBtnActiveStyle : null) }}
-                              >
-                                {t("dont_count_option")}
-                              </button>
-                            </div>
-                          )}
-                          {overrideChoiceOpen && (
-                            <div className="print-hide" style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 6 }}>
-                              <button
-                                type="button"
-                                onClick={() => chooseStatementOverrideCounted(row.statementId, true)}
-                                style={{ ...choiceBtnStyle, ...(overrideCounted ? choiceBtnActiveStyle : null) }}
-                              >
-                                {t("count_option")}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => chooseStatementOverrideCounted(row.statementId, false)}
-                                style={{ ...choiceBtnStyle, ...(!overrideCounted ? choiceBtnActiveStyle : null) }}
-                              >
-                                {t("dont_count_option")}
-                              </button>
-                            </div>
-                          )}
-                          {goldChoiceOpen && (
-                            <div className="print-hide" style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 6 }}>
-                              <button
-                                type="button"
-                                onClick={() => chooseCounted(row, "gold21k", true)}
-                                style={{ ...choiceBtnStyle, ...(goldCounted ? choiceBtnActiveStyle : null) }}
-                              >
-                                {t("count_option")}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => chooseCounted(row, "gold21k", false)}
-                                style={{ ...choiceBtnStyle, ...(!goldCounted ? choiceBtnActiveStyle : null) }}
-                              >
-                                {t("dont_count_option")}
-                              </button>
-                            </div>
-                          )}
-                          {row.note ? <div style={{ fontSize: 11.5, color: "#8B7355", marginTop: 3 }}>{row.note}</div> : null}
-                          <div className="print-hide" style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 6 }}>
-                            <button
-                              type="button"
-                              onClick={() => startEdit(row)}
-                              disabled={rowBusy}
-                              style={{ background: "transparent", border: "none", color: "#8B7355", fontSize: 11.5, cursor: "pointer" }}
-                            >
-                              {t("edit")}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => deleteRow(row)}
-                              disabled={rowBusy}
-                              style={{ background: "transparent", border: "none", color: "#D4756B", fontSize: 11.5, cursor: "pointer" }}
-                            >
-                              {t("delete")}
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                    {isLastOfStatement && (
-                      <div className="print-hide" style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
+                          ) : (
+                            <span style={{ padding: "2px 4px", fontSize: 13, color: "#8B7355" }}>—</span>
+                          )
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setActiveChoice(laborChoiceOpen ? null : { key: row.key, field: "labor" })}
+                            className={laborCounted ? "num-included" : "num-excluded"}
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              padding: "2px 4px",
+                              cursor: "pointer",
+                              fontSize: 13,
+                              fontWeight: 600,
+                              color: laborCounted ? "#C9A227" : "#D4756B",
+                            }}
+                          >
+                            {money(row.labor)}
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={() => addRowToStatement(row.statementId)}
-                          disabled={rowBusy}
-                          style={choiceBtnStyle}
+                          onClick={() => setActiveChoice(goldChoiceOpen ? null : { key: row.key, field: "gold21k" })}
+                          className={goldCounted ? "num-included" : "num-excluded"}
+                          style={{
+                            background: "transparent",
+                            border: "none",
+                            padding: "2px 4px",
+                            cursor: "pointer",
+                            fontSize: 13,
+                            fontWeight: 600,
+                            color: goldCounted ? "#C9A227" : "#D4756B",
+                          }}
                         >
-                          {t("add_row")}
+                          {grams(row.gold21k)}
                         </button>
                       </div>
-                    )}
+                      {laborChoiceOpen && (
+                        <div className="print-hide" style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 6 }}>
+                          <button
+                            type="button"
+                            onClick={() => chooseCounted(row, "labor", true)}
+                            style={{ ...choiceBtnStyle, ...(laborCounted ? choiceBtnActiveStyle : null) }}
+                          >
+                            {t("count_option")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => chooseCounted(row, "labor", false)}
+                            style={{ ...choiceBtnStyle, ...(!laborCounted ? choiceBtnActiveStyle : null) }}
+                          >
+                            {t("dont_count_option")}
+                          </button>
+                        </div>
+                      )}
+                      {overrideChoiceOpen && (
+                        <div className="print-hide" style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 6 }}>
+                          <button
+                            type="button"
+                            onClick={() => chooseStatementOverrideCounted(row.statementId, true)}
+                            style={{ ...choiceBtnStyle, ...(overrideCounted ? choiceBtnActiveStyle : null) }}
+                          >
+                            {t("count_option")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => chooseStatementOverrideCounted(row.statementId, false)}
+                            style={{ ...choiceBtnStyle, ...(!overrideCounted ? choiceBtnActiveStyle : null) }}
+                          >
+                            {t("dont_count_option")}
+                          </button>
+                        </div>
+                      )}
+                      {goldChoiceOpen && (
+                        <div className="print-hide" style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 6 }}>
+                          <button
+                            type="button"
+                            onClick={() => chooseCounted(row, "gold21k", true)}
+                            style={{ ...choiceBtnStyle, ...(goldCounted ? choiceBtnActiveStyle : null) }}
+                          >
+                            {t("count_option")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => chooseCounted(row, "gold21k", false)}
+                            style={{ ...choiceBtnStyle, ...(!goldCounted ? choiceBtnActiveStyle : null) }}
+                          >
+                            {t("dont_count_option")}
+                          </button>
+                        </div>
+                      )}
+                      {row.note ? <div style={{ fontSize: 11.5, color: "#8B7355", marginTop: 3 }}>{row.note}</div> : null}
                     </div>
                   );
                   });
                 })()}
+              </div>
+            )}
+          </div>
+
+          <div style={{ marginTop: 22 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <div style={{ fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 600, color: "#F3EEE3" }}>
+                {t("manual_entries")}
+              </div>
+              <button type="button" onClick={addManualRow} className="print-hide" style={choiceBtnStyle}>
+                {t("add_row")}
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: "#8B7355", marginBottom: 10 }} className="print-hide">
+              {t("manual_entries_desc")}
+            </div>
+            {manualRows.length === 0 ? null : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {manualRows.map((m) => (
+                  <div
+                    key={m.id}
+                    className="row-card"
+                    style={{ background: "#1C1913", border: "1px solid #3A3527", borderRadius: 10, padding: "0.7rem 0.9rem" }}
+                  >
+                    <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                      <select
+                        value={m.method}
+                        onChange={(e) => updateManualRow(m.id, "method", e.target.value)}
+                        style={{ flex: 1, fontSize: 12 }}
+                      >
+                        <option value="">{t("select_method_ph")}</option>
+                        <option value="Bars">{t("method_bars")}</option>
+                        <option value="Scrap">{t("method_scrap")}</option>
+                        <option value="Transfer">{t("method_transfer")}</option>
+                        <option value="Labor">{t("method_labor")}</option>
+                        <option value="CashToGrams">{t("method_cash_to_grams")}</option>
+                        <option value="GramsToCash">{t("method_grams_to_cash")}</option>
+                        <option value="GoldCredit">{t("method_gold_credit")}</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => removeManualRow(m.id)}
+                        className="print-hide"
+                        style={{ background: "transparent", border: "none", color: "#D4756B", fontSize: 16, cursor: "pointer", padding: "0 6px" }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                      <input
+                        type="text"
+                        placeholder={t("labor_col")}
+                        value={m.labor}
+                        onChange={(e) => updateManualRow(m.id, "labor", e.target.value)}
+                        style={{ flex: 1, fontSize: 13 }}
+                      />
+                      <input
+                        type="text"
+                        placeholder={t("gold21k_col")}
+                        value={m.gold21k}
+                        onChange={(e) => updateManualRow(m.id, "gold21k", e.target.value)}
+                        style={{ flex: 1, fontSize: 13 }}
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder={t("notes_col")}
+                      value={m.note}
+                      onChange={(e) => updateManualRow(m.id, "note", e.target.value)}
+                      style={{ fontSize: 13, width: "100%" }}
+                    />
+                  </div>
+                ))}
               </div>
             )}
           </div>
