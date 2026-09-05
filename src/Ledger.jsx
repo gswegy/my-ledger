@@ -3042,24 +3042,6 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
         if (field === "barWeight" || field === "barKarat") {
           next.gold21k = computeBarGold21k(next.barWeight, next.barKarat);
         }
-        // Cash to Grams (and the legacy Cash Transfer/Money) links money,
-        // gold price, and 21k gold — editing any one of the three fills in
-        // the third from whichever of the other two already has a value.
-        if (
-          (r.method === "Money" || r.method === "CashToGrams") &&
-          (field === "moneyAmount" || field === "goldPrice" || field === "gold21k")
-        ) {
-          if (field === "gold21k") {
-            if (next.goldPrice) next.moneyAmount = moneyFromGoldPrice(next.gold21k, next.goldPrice);
-            else if (next.moneyAmount) next.goldPrice = goldPriceFromMoneyGold(next.moneyAmount, next.gold21k);
-          } else if (field === "moneyAmount") {
-            if (next.goldPrice) next.gold21k = computeMoneyGold21k(next.moneyAmount, next.goldPrice);
-            else if (next.gold21k) next.goldPrice = goldPriceFromMoneyGold(next.moneyAmount, next.gold21k);
-          } else if (field === "goldPrice") {
-            if (next.moneyAmount) next.gold21k = computeMoneyGold21k(next.moneyAmount, next.goldPrice);
-            else if (next.gold21k) next.moneyAmount = moneyFromGoldPrice(next.gold21k, next.goldPrice);
-          }
-        }
         // Grams to Cash: one direction only — grams + price always fill
         // in the money (stored in Labor), never the other way around.
         if (r.method === "GramsToCash" && (field === "gold21k" || field === "goldPrice")) {
@@ -3075,6 +3057,30 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
           const p = parseFloat(toEnglishDigits(next.goldPrice)) || 0;
           next.gold21k = g ? String(-truncate2(g)) : "";
           next.labor = g && p ? String(truncate2(g * p)) : "";
+        }
+        return next;
+      })
+    );
+  }
+  // Money/Gold-price/21k-Gold are linked (any two determine the third),
+  // but recalculating on every keystroke made the other fields visibly
+  // flicker through intermediate values while typing. This runs once,
+  // when the person leaves the field they were editing, instead.
+  function finalizeMoneyGoldTriad(id, editedField) {
+    setPayments((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        if (r.method !== "Money" && r.method !== "CashToGrams") return r;
+        const next = { ...r };
+        if (editedField === "gold21k") {
+          if (next.goldPrice) next.moneyAmount = moneyFromGoldPrice(next.gold21k, next.goldPrice);
+          else if (next.moneyAmount) next.goldPrice = goldPriceFromMoneyGold(next.moneyAmount, next.gold21k);
+        } else if (editedField === "moneyAmount") {
+          if (next.goldPrice) next.gold21k = computeMoneyGold21k(next.moneyAmount, next.goldPrice);
+          else if (next.gold21k) next.goldPrice = goldPriceFromMoneyGold(next.moneyAmount, next.gold21k);
+        } else if (editedField === "goldPrice") {
+          if (next.moneyAmount) next.gold21k = computeMoneyGold21k(next.moneyAmount, next.goldPrice);
+          else if (next.gold21k) next.moneyAmount = moneyFromGoldPrice(next.gold21k, next.goldPrice);
         }
         return next;
       })
@@ -3625,6 +3631,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                             placeholder={t("money_ph")}
                             value={row.moneyAmount}
                             onChange={(e) => updatePayment(row.id, "moneyAmount", e.target.value)}
+                            onBlur={() => finalizeMoneyGoldTriad(row.id, "moneyAmount")}
                             style={{ fontSize: 11, textAlign: "center" }}
                           />
                           <input
@@ -3632,6 +3639,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                             placeholder={t("gold_price_ph")}
                             value={row.goldPrice}
                             onChange={(e) => updatePayment(row.id, "goldPrice", e.target.value)}
+                            onBlur={() => finalizeMoneyGoldTriad(row.id, "goldPrice")}
                             style={{ fontSize: 11, textAlign: "center" }}
                           />
                         </div>
@@ -3640,6 +3648,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                           placeholder={t("gold_g_ph")}
                           value={row.gold21k}
                           onChange={(e) => updatePayment(row.id, "gold21k", e.target.value)}
+                          onBlur={() => finalizeMoneyGoldTriad(row.id, "gold21k")}
                           style={{ fontSize: 12, fontWeight: 700, color: "var(--gold-deep)", textAlign: "center" }}
                         />
                       </div>
@@ -3651,6 +3660,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                             placeholder={t("money_ph")}
                             value={row.moneyAmount}
                             onChange={(e) => updatePayment(row.id, "moneyAmount", e.target.value)}
+                            onBlur={() => finalizeMoneyGoldTriad(row.id, "moneyAmount")}
                             style={{ fontSize: 11, textAlign: "center" }}
                           />
                           <input
@@ -3658,6 +3668,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                             placeholder={t("gold_price_ph")}
                             value={row.goldPrice}
                             onChange={(e) => updatePayment(row.id, "goldPrice", e.target.value)}
+                            onBlur={() => finalizeMoneyGoldTriad(row.id, "goldPrice")}
                             style={{ fontSize: 11, textAlign: "center" }}
                           />
                         </div>
@@ -3666,6 +3677,7 @@ function CreateReceiptScreen({ receiptId, onDeleted }) {
                           placeholder={t("gold_g_ph")}
                           value={row.gold21k}
                           onChange={(e) => updatePayment(row.id, "gold21k", e.target.value)}
+                          onBlur={() => finalizeMoneyGoldTriad(row.id, "gold21k")}
                           style={{ fontSize: 12, fontWeight: 700, color: "var(--gold-deep)", textAlign: "center" }}
                         />
                       </div>
